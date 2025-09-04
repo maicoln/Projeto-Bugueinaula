@@ -4,7 +4,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import type { User } from '@supabase/supabase-js'
-
+//
 // TIPO SIMPLIFICADO: Apenas com o nome
 
 export default function PerfilPage() {
