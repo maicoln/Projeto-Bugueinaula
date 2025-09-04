@@ -33,7 +33,7 @@ export default function CadastroPage() {
 
   useEffect(() => {
     async function fetchEscolas() {
-      const { data, error } = await supabase.from('escolas').select('id, nome')
+      const { data } = await supabase.from('escolas').select('id, nome')
       if (data) {
         setEscolas(data)
       }
@@ -49,8 +49,7 @@ export default function CadastroPage() {
       return
     }
     async function fetchTurmas() {
-      const { data, error } = await supabase
-        .from('turmas')
+      const { data } = await supabase.from('turmas')
         .select('id, nome')
         .eq('escola_id', escolaId)
       if (data) {

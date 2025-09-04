@@ -6,9 +6,6 @@ import { supabase } from '@/lib/supabaseClient'
 import type { User } from '@supabase/supabase-js'
 
 // TIPO SIMPLIFICADO: Apenas com o nome
-type ProfileData = {
-  nome: string
-}
 
 export default function PerfilPage() {
   const [loading, setLoading] = useState(true)
