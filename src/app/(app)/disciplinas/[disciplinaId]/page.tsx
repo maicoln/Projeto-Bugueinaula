@@ -1,4 +1,4 @@
-// Local: /src/app/(app)/disciplinas/[disciplinaId]/page.tsx (Com correção de tipo)
+// Local: /src/app/(app)/disciplinas/[disciplinaId]/page.tsx (Versão Completa e Corrigida)
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -6,7 +6,6 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { FileText, Lightbulb, ClipboardCheck } from 'lucide-react';
 
-// --- Tipos e Componentes Auxiliares (sem alterações) ---
 type Conteudo = { id: number; tipo: 'MATERIAL_AULA' | 'EXEMPLO' | 'EXERCICIO'; titulo: string; descricao: string | null };
 type Semana = { numero: number; conteudos: Conteudo[] };
 type Bimestre = { numero: number; semanas: Semana[] };
@@ -19,16 +18,12 @@ function ConteudoIcon({ tipo }: { tipo: Conteudo['tipo'] }) {
   };
   return <span className="mt-1">{iconMap[tipo]}</span>;
 }
-// --- Fim dos Tipos e Componentes Auxiliares ---
 
-// MUDANÇA 1: A tipagem de 'params' foi simplificada para um objeto normal.
 export default function DisciplinaDetalhesPage({ params }: { params: { disciplinaId: string } }) {
   const [loading, setLoading] = useState(true);
   const [disciplinaNome, setDisciplinaNome] = useState('');
   const [estruturaOrganizada, setEstruturaOrganizada] = useState<Bimestre[]>([]);
   const router = useRouter();
-
-  // MUDANÇA 2: Lemos o disciplinaId diretamente de params
   const { disciplinaId } = params;
 
   useEffect(() => {
@@ -39,47 +34,40 @@ export default function DisciplinaDetalhesPage({ params }: { params: { disciplin
         return;
       }
 
-      // Busca o nome da disciplina
       const { data: disciplina } = await supabase
         .from('disciplinas')
         .select('nome')
-        .eq('id', disciplinaId) // Usa a variável disciplinaId
+        .eq('id', disciplinaId)
         .single();
       if (disciplina) setDisciplinaNome(disciplina.nome);
 
-      // Busca os conteúdos
-      const { data: conteudos, error } = await supabase
+      const { data: conteudos } = await supabase
         .from('conteudos')
         .select('id, bimestre, semana, tipo, titulo, descricao')
-        .eq('disciplina_id', disciplinaId) // Usa a variável disciplinaId
+        .eq('disciplina_id', disciplinaId)
         .order('bimestre', { ascending: true })
         .order('semana', { ascending: true });
 
-      if (error) {
-        console.error('Erro ao buscar conteúdo:', error);
-      } else if (conteudos) {
-        // ... Lógica de reduce (sem alterações)
-        const estrutura = (conteudos || []).reduce<Bimestre[]>((acc, item) => {
-          let bimestre = acc.find(b => b.numero === item.bimestre);
-          if (!bimestre) {
-            bimestre = { numero: item.bimestre, semanas: [] };
-            acc.push(bimestre);
-          }
-          let semana = bimestre.semanas.find(s => s.numero === item.semana);
-          if (!semana) {
-            semana = { numero: item.semana, conteudos: [] };
-            bimestre.semanas.push(semana);
-          }
-          semana.conteudos.push({
-            id: item.id,
-            tipo: item.tipo as Conteudo['tipo'],
-            titulo: item.titulo,
-            descricao: item.descricao
-          });
-          return acc;
-        }, []);
-        setEstruturaOrganizada(estrutura);
-      }
+      const estrutura = (conteudos || []).reduce<Bimestre[]>((acc, item) => {
+        let bimestre = acc.find(b => b.numero === item.bimestre);
+        if (!bimestre) {
+          bimestre = { numero: item.bimestre, semanas: [] };
+          acc.push(bimestre);
+        }
+        let semana = bimestre.semanas.find(s => s.numero === item.semana);
+        if (!semana) {
+          semana = { numero: item.semana, conteudos: [] };
+          bimestre.semanas.push(semana);
+        }
+        semana.conteudos.push({
+          id: item.id,
+          tipo: item.tipo as Conteudo['tipo'],
+          titulo: item.titulo,
+          descricao: item.descricao
+        });
+        return acc;
+      }, []);
+      setEstruturaOrganizada(estrutura);
       setLoading(false);
     }
     fetchConteudo();
@@ -89,10 +77,42 @@ export default function DisciplinaDetalhesPage({ params }: { params: { disciplin
     return <div className="text-center">Carregando conteúdo da disciplina...</div>;
   }
 
-  // O JSX para renderização permanece o mesmo
   return (
     <div>
-      {/* ... */}
+      <h1 className="mb-6 text-3xl font-bold">{disciplinaNome || 'Conteúdo da Disciplina'}</h1>
+      <div className="space-y-6">
+        {estruturaOrganizada.length > 0 ? (
+          estruturaOrganizada.map(bimestre => (
+            <details key={bimestre.numero} open className="rounded-lg bg-white p-4 shadow-sm dark:bg-gray-800">
+              <summary className="cursor-pointer text-xl font-semibold hover:text-blue-600 dark:hover:text-blue-400">
+                {bimestre.numero}º Bimestre
+              </summary>
+              <div className="mt-4 space-y-4 border-l-2 border-gray-200 pl-4 dark:border-gray-700">
+                {bimestre.semanas.map(semana => (
+                  <details key={semana.numero} open className="rounded-lg bg-gray-50 p-4 dark:bg-gray-900">
+                    <summary className="cursor-pointer font-medium hover:text-blue-600 dark:hover:text-blue-400">
+                      Semana {semana.numero}
+                    </summary>
+                    <ul className="mt-3 space-y-3 pl-4">
+                      {semana.conteudos.map(conteudo => (
+                        <li key={conteudo.id} className="flex items-start gap-4">
+                          <ConteudoIcon tipo={conteudo.tipo} />
+                          <div>
+                            <h4 className="font-semibold">{conteudo.titulo}</h4>
+                            <p className="text-sm text-gray-600 dark:text-gray-400">{conteudo.descricao}</p>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                ))}
+              </div>
+            </details>
+          ))
+        ) : (
+          <p>Nenhum conteúdo cadastrado para esta disciplina ainda.</p>
+        )}
+      </div>
     </div>
   );
 }
