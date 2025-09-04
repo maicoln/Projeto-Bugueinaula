@@ -40,7 +40,7 @@ export default function DisciplinaDetalhesPage({ params }: { params: { disciplin
         .eq('id', disciplinaId)
         .single();
       if (disciplina) setDisciplinaNome(disciplina.nome);
-
+//
       const { data: conteudos } = await supabase
         .from('conteudos')
         .select('id, bimestre, semana, tipo, titulo, descricao')
