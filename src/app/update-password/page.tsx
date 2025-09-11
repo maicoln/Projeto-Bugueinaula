@@ -1,53 +1,59 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { BrainCircuit, Mail, Lock } from 'lucide-react';
+import { BrainCircuit, Lock, ArrowLeft } from 'lucide-react';
 import { motion, Variants } from 'framer-motion';
 
-export default function LoginPage() {
-  const [email, setEmail] = useState('');
+export default function UpdatePasswordPage() {
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
-  const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setMessage('Sessão de recuperação de senha iniciada. Por favor, crie uma nova senha.');
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleUpdatePassword = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (password !== confirmPassword) {
+      setError('As senhas não coincidem.');
+      return;
+    }
+    setError('');
     setMessage('');
     setLoading(true);
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    const { error } = await supabase.auth.updateUser({ password });
 
     if (error) {
-      setMessage(`Erro no login: ${error.message}`);
+      setError(`Erro ao atualizar a senha: ${error.message}`);
     } else {
-      router.push('/');
-      router.refresh();
+      setMessage('Senha atualizada com sucesso! A redirecionar para o login...');
+      setTimeout(() => router.push('/login'), 3000);
     }
     setLoading(false);
   };
 
   const containerVariants: Variants = {
     hidden: { opacity: 0 },
-    visible: {
-      opacity: 1,
-      transition: { staggerChildren: 0.15 },
-    },
+    visible: { opacity: 1, transition: { staggerChildren: 0.15 } },
   };
 
   const itemVariants: Variants = {
     hidden: { opacity: 0, y: 20 },
-    visible: {
-      opacity: 1,
-      y: 0,
-      transition: { type: 'spring' as const, stiffness: 60 },
-    },
+    visible: { opacity: 1, y: 0, transition: { type: 'spring' as const, stiffness: 60 } },
   };
 
   return (
@@ -62,9 +68,7 @@ export default function LoginPage() {
         <div className="text-center">
           <BrainCircuit size={64} className="mx-auto mb-4 text-white drop-shadow-lg" />
           <h1 className="text-4xl font-bold drop-shadow">Bugueinaula</h1>
-          <p className="mt-2 text-lg text-blue-100">
-            Entre e continue sua jornada de aprendizado.
-          </p>
+          <p className="mt-2 text-lg text-blue-100">Crie uma nova senha de acesso.</p>
         </div>
       </motion.div>
 
@@ -82,29 +86,16 @@ export default function LoginPage() {
             transition={{ duration: 0.5, ease: 'easeOut' }}
             className="mb-6 text-center text-3xl font-bold text-gray-900 dark:text-white"
           >
-            Acesse sua Conta
+            Criar Nova Senha
           </motion.h2>
 
           <motion.form
-            onSubmit={handleLogin}
+            onSubmit={handleUpdatePassword}
             variants={containerVariants}
             initial="hidden"
             animate="visible"
             className="space-y-4"
           >
-            <motion.div className="relative" variants={itemVariants}>
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-              <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                placeholder="E-mail"
-                className="w-full rounded-lg border border-gray-300 bg-white p-3 pl-10 text-gray-900 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-              />
-            </motion.div>
-
             <motion.div className="relative" variants={itemVariants}>
               <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
               <input
@@ -113,15 +104,22 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                placeholder="Senha"
+                placeholder="Nova Senha"
                 className="w-full rounded-lg border border-gray-300 bg-white p-3 pl-10 text-gray-900 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
               />
             </motion.div>
 
-            <motion.div className="text-right text-sm" variants={itemVariants}>
-              <Link href="/reset-senha" className="font-medium text-blue-600 hover:underline dark:text-blue-400">
-                Esqueceu sua senha?
-              </Link>
+            <motion.div className="relative" variants={itemVariants}>
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+              <input
+                id="confirmPassword"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+                placeholder="Confirme a Nova Senha"
+                className="w-full rounded-lg border border-gray-300 bg-white p-3 pl-10 text-gray-900 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+              />
             </motion.div>
 
             <motion.button
@@ -132,7 +130,7 @@ export default function LoginPage() {
               whileTap={{ scale: 0.95 }}
               className="w-full rounded-lg bg-gradient-to-r from-blue-600 to-blue-700 p-3 text-white font-semibold shadow-md transition disabled:opacity-50"
             >
-              {loading ? 'Entrando...' : 'Entrar'}
+              {loading ? 'A atualizar...' : 'Atualizar Senha'}
             </motion.button>
           </motion.form>
 
@@ -140,23 +138,36 @@ export default function LoginPage() {
             <motion.p
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="mt-4 text-center text-sm text-red-500"
+              className="mt-4 text-center text-sm text-green-500"
             >
               {message}
             </motion.p>
           )}
 
-          <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.4 }}
-            className="mt-6 text-center text-sm text-gray-600 dark:text-gray-400"
+          {error && (
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="mt-4 text-center text-sm text-red-500"
+            >
+              {error}
+            </motion.p>
+          )}
+
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4, duration: 0.5 }}
+            className="mt-6 text-center"
           >
-            Não tem uma conta?{' '}
-            <Link href="/cadastro" className="font-semibold text-blue-600 hover:underline dark:text-blue-400">
-              Cadastre-se
+            <Link
+              href="/login"
+              className="flex items-center justify-center gap-2 text-sm font-semibold text-blue-600 hover:underline dark:text-blue-400"
+            >
+              <ArrowLeft size={16} />
+              Voltar para o Login
             </Link>
-          </motion.p>
+          </motion.div>
         </motion.div>
       </div>
     </div>

@@ -2,33 +2,30 @@
 
 import { useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { BrainCircuit, Mail, Lock } from 'lucide-react';
+import { BrainCircuit, Mail, ArrowLeft } from 'lucide-react';
 import { motion, Variants } from 'framer-motion';
 
-export default function LoginPage() {
+export default function ResetSenhaPage() {
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
 
-  const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handlePasswordReset = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setMessage('');
+    setError('');
     setLoading(true);
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/update-password`,
     });
 
     if (error) {
-      setMessage(`Erro no login: ${error.message}`);
+      setError(`Erro: ${error.message}`);
     } else {
-      router.push('/');
-      router.refresh();
+      setMessage('Link de redefinição de senha enviado! Verifique seu e-mail.');
     }
     setLoading(false);
   };
@@ -62,9 +59,7 @@ export default function LoginPage() {
         <div className="text-center">
           <BrainCircuit size={64} className="mx-auto mb-4 text-white drop-shadow-lg" />
           <h1 className="text-4xl font-bold drop-shadow">Bugueinaula</h1>
-          <p className="mt-2 text-lg text-blue-100">
-            Entre e continue sua jornada de aprendizado.
-          </p>
+          <p className="mt-2 text-lg text-blue-100">Recupere o acesso à sua conta.</p>
         </div>
       </motion.div>
 
@@ -80,13 +75,21 @@ export default function LoginPage() {
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, ease: 'easeOut' }}
-            className="mb-6 text-center text-3xl font-bold text-gray-900 dark:text-white"
+            className="mb-2 text-center text-3xl font-bold text-gray-900 dark:text-white"
           >
-            Acesse sua Conta
+            Redefinir Senha
           </motion.h2>
+          <motion.p
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2, duration: 0.5 }}
+            className="mb-6 text-center text-gray-600 dark:text-gray-400"
+          >
+            Digite seu e-mail para receber o link de redefinição.
+          </motion.p>
 
           <motion.form
-            onSubmit={handleLogin}
+            onSubmit={handlePasswordReset}
             variants={containerVariants}
             initial="hidden"
             animate="visible"
@@ -100,28 +103,9 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                placeholder="E-mail"
+                placeholder="Seu e-mail de cadastro"
                 className="w-full rounded-lg border border-gray-300 bg-white p-3 pl-10 text-gray-900 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
               />
-            </motion.div>
-
-            <motion.div className="relative" variants={itemVariants}>
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                placeholder="Senha"
-                className="w-full rounded-lg border border-gray-300 bg-white p-3 pl-10 text-gray-900 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-              />
-            </motion.div>
-
-            <motion.div className="text-right text-sm" variants={itemVariants}>
-              <Link href="/reset-senha" className="font-medium text-blue-600 hover:underline dark:text-blue-400">
-                Esqueceu sua senha?
-              </Link>
             </motion.div>
 
             <motion.button
@@ -132,7 +116,7 @@ export default function LoginPage() {
               whileTap={{ scale: 0.95 }}
               className="w-full rounded-lg bg-gradient-to-r from-blue-600 to-blue-700 p-3 text-white font-semibold shadow-md transition disabled:opacity-50"
             >
-              {loading ? 'Entrando...' : 'Entrar'}
+              {loading ? 'Enviando...' : 'Enviar Link'}
             </motion.button>
           </motion.form>
 
@@ -140,23 +124,35 @@ export default function LoginPage() {
             <motion.p
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="mt-4 text-center text-sm text-red-500"
+              className="mt-4 text-center text-sm text-green-500"
             >
               {message}
             </motion.p>
           )}
+          {error && (
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="mt-4 text-center text-sm text-red-500"
+            >
+              {error}
+            </motion.p>
+          )}
 
-          <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.4 }}
-            className="mt-6 text-center text-sm text-gray-600 dark:text-gray-400"
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4, duration: 0.5 }}
+            className="mt-6 text-center"
           >
-            Não tem uma conta?{' '}
-            <Link href="/cadastro" className="font-semibold text-blue-600 hover:underline dark:text-blue-400">
-              Cadastre-se
+            <Link
+              href="/login"
+              className="flex items-center justify-center gap-2 text-sm font-semibold text-blue-600 hover:underline dark:text-blue-400"
+            >
+              <ArrowLeft size={16} />
+              Voltar para o Login
             </Link>
-          </motion.p>
+          </motion.div>
         </motion.div>
       </div>
     </div>

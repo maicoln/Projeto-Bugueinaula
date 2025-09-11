@@ -1,66 +1,57 @@
-// Local: src/app/(app)/page.tsx (Versão Final com Workaround)
-'use client'; // <-- PASSO 1: Transforma este em um Componente de Cliente
+'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import LogoutButton from './LogoutButton';
-import { supabase } from '@/lib/supabaseClient'; // <-- PASSO 2: Usa o cliente do NAVEGADOR
+import Link from 'next/link';
+import { Book, User } from 'lucide-react';
+import type { ElementType } from 'react';
 
-// Tipo para os dados do perfil
-type ProfileData = {
-  nome: string;
-  tipo_usuario: string;
-};
+interface NavCardProps {
+  href: string;
+  icon: ElementType;
+  title: string;
+  description: string;
+}
+
+const NavCard = ({ href, icon: Icon, title, description }: NavCardProps) => (
+  <Link href={href} className="flex"> {/* Adicionado 'flex' para o Link ocupar a altura */}
+    {/* Adicionado 'flex flex-col' para o card se esticar */}
+    <div className="group flex flex-col w-full rounded-xl border border-border bg-card p-6 text-card-foreground shadow-sm transition-all hover:border-primary/80 hover:shadow-md dark:border-dark-border dark:bg-dark-card dark:text-dark-card-foreground dark:hover:border-dark-primary/80">
+      <div className="flex items-start gap-4">
+        <div className="rounded-lg bg-primary/10 p-3 text-primary dark:bg-dark-primary/10 dark:text-dark-primary">
+          <Icon className="h-6 w-6" />
+        </div>
+        <div>
+          <h3 className="text-lg font-semibold group-hover:text-primary dark:group-hover:text-dark-primary">{title}</h3>
+          <p className="mt-1 text-sm text-muted-foreground dark:text-dark-muted-foreground">{description}</p>
+        </div>
+      </div>
+    </div>
+  </Link>
+);
 
 export default function HomePage() {
-  const [loading, setLoading] = useState(true);
-  const [profile, setProfile] = useState<ProfileData | null>(null);
-  const router = useRouter();
-
-  useEffect(() => {
-    // PASSO 3: A lógica de busca de dados agora acontece dentro de um useEffect
-    async function fetchUserData() {
-      // Usamos getUser() do lado do cliente, que é seguro
-      const { data: { user } } = await supabase.auth.getUser();
-
-      if (!user) {
-        // Se não houver usuário, redireciona para o login
-        router.push('/login');
-        return;
-      }
-
-      // Se houver usuário, busca o perfil
-      const { data: profileData, error } = await supabase
-        .from('profiles')
-        .select('nome, tipo_usuario')
-        .eq('id', user.id)
-        .single();
-      
-      if (error) {
-        console.error('Erro ao buscar perfil:', error);
-        // Lida com o erro, talvez mostrando uma mensagem
-      } else {
-        setProfile(profileData);
-      }
-
-      setLoading(false);
-    }
-
-    fetchUserData();
-  }, [router]);
-
-  // Enquanto os dados estão carregando, mostramos uma mensagem
-  if (loading) {
-    return <div className="text-center">Carregando...</div>;
-  }
-
   return (
-    <div className="text-center">
-      <h1 className="mb-4 text-4xl font-bold">
-        Bem-vindo(a) ao Bugueinaula, {profile?.nome ?? 'Usuário'}!
-      </h1>
-      <p className="mb-8">Você está logado como: <strong>{profile?.tipo_usuario}</strong></p>
-      <LogoutButton />
+    <div className="animate-fade-in">
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold tracking-tight">Painel de Controle</h1>
+        <p className="mt-1 text-muted-foreground dark:text-dark-muted-foreground">
+          Acesse rapidamente as seções mais importantes do site.
+        </p>
+      </div>
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
+        <NavCard 
+          href="/disciplinas"
+          icon={Book}
+          title="Minhas Disciplinas"
+          description="Acesse o material de aula, exemplos e exercícios."
+        />
+        <NavCard 
+          href="/perfil"
+          icon={User}
+          title="Meu Perfil"
+          description="Visualize e atualize suas informações pessoais e sua senha."
+        />
+      </div>
     </div>
   );
 }
+

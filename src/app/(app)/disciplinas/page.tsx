@@ -1,11 +1,10 @@
-// Local: /src/app/(app)/disciplinas/page.tsx (Corrigido para Cliente)
 'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Book } from 'lucide-react';
-import { supabase } from '@/lib/supabaseClient'; // Usa o cliente do navegador
+import { Book, ChevronRight } from 'lucide-react'; // Ícone de seta adicionado
+import { supabase } from '@/lib/supabaseClient';
 
 type Disciplina = {
   id: number;
@@ -45,14 +44,21 @@ export default function DisciplinasPage() {
     <div>
       <h1 className="mb-6 text-3xl font-bold">Minhas Disciplinas</h1>
       {disciplinas.length > 0 ? (
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+        // Alterado de 'grid' para 'flex flex-col' para criar uma lista vertical
+        <div className="flex flex-col gap-4">
           {disciplinas.map((disciplina) => (
             <Link href={`/disciplinas/${disciplina.id}`} key={disciplina.id}>
-              <div className="flex transform items-center gap-4 rounded-lg bg-white p-6 shadow-md transition-transform hover:scale-105 dark:bg-gray-800">
-                <div className="rounded-full bg-blue-100 p-3 dark:bg-blue-900">
-                  <Book className="h-6 w-6 text-blue-600 dark:text-blue-300" />
+              {/* O card agora se estica horizontalmente e justifica o conteúdo */}
+              <div className="flex w-full transform items-center justify-between rounded-lg bg-white p-6 shadow-md transition-transform hover:scale-[1.02] dark:bg-gray-800">
+                <div className="flex items-center gap-4">
+                  <div className="rounded-full bg-blue-100 p-3 dark:bg-blue-900">
+                    <Book className="h-6 w-6 text-blue-600 dark:text-blue-300" />
+                  </div>
+                  {/* O nome da disciplina agora tem espaço para crescer */}
+                  <h2 className="text-xl font-semibold">{disciplina.nome}</h2>
                 </div>
-                <h2 className="text-xl font-semibold">{disciplina.nome}</h2>
+                {/* Ícone de seta para indicar clicabilidade */}
+                <ChevronRight className="h-6 w-6 text-gray-400" />
               </div>
             </Link>
           ))}
