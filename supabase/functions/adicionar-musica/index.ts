@@ -1,8 +1,6 @@
-// Ficheiro: supabase/functions/adicionar-musica/index.ts (VERSÃO CORRIGIDA)
+// Ficheiro: supabase/functions/adicionar-musica/index.ts
 
-// @ts-expect-error -- Supabase/Deno usa importações de URL, o que causa um erro de build no Next.js.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-// @ts-expect-error -- Supabase/Deno exige extensões de arquivo, o que causa um erro de build no Next.js.
 import { corsHeaders } from '../_shared/cors.ts';
 
 interface AddSongPayload {
@@ -15,7 +13,7 @@ function getYouTubeVideoId(url: string): string | null {
   return (match && match[2].length === 11) ? match[2] : null;
 }
 
-Deno.serve(async (req: Request) => { // Adicionado tipo 'Request' para clareza
+Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
