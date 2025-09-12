@@ -1,10 +1,8 @@
 // Ficheiro: supabase/functions/adicionar-musica/index.ts (VERSÃO CORRIGIDA)
 
-// A importação abaixo usa uma URL, que é o padrão para Deno, mas causa um erro
-// no ambiente de build da Vercel (Node.js). A diretiva @ts-expect-error na linha
-// seguinte instrui o compilador TypeScript a ignorar o erro nesta importação.
-// @ts-expect-error - Corrigido para seguir a recomendação do ESLint.
+// @ts-expect-error -- Supabase/Deno usa importações de URL, o que causa um erro de build no Next.js.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+// @ts-expect-error -- Supabase/Deno exige extensões de arquivo, o que causa um erro de build no Next.js.
 import { corsHeaders } from '../_shared/cors.ts';
 
 interface AddSongPayload {
