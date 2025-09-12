@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Book, ChevronLeft, LayoutDashboard, BrainCircuit, PenSquare, FileEdit, ClipboardList } from 'lucide-react';
+import { Book, ChevronLeft, LayoutDashboard, BrainCircuit, PenSquare, FileEdit, ClipboardList, Music } from 'lucide-react'; // <<< Ícone da Jukebox adicionado
 import { Dispatch, SetStateAction, useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
@@ -36,7 +36,7 @@ export default function Sidebar({
         }
       }
     }
-    fetchUserRole();
+    void fetchUserRole(); // Usando void para lidar com a promise de forma limpa
   }, []);
 
   const menuItems = [
@@ -44,14 +44,15 @@ export default function Sidebar({
     
     // Links de Aluno
     { icon: Book, text: 'Disciplinas', href: '/disciplinas', roles: ['ALUNO'] },
-    // <<< NOVO LINK PARA ALUNOS >>>
     { icon: ClipboardList, text: 'Minhas Atividades', href: '/aluno/atividades', roles: ['ALUNO'] },
+    { icon: Music, text: 'Jukebox Coletiva', href: '/aluno/jukebox', roles: ['ALUNO'] }, // <<< NOVO LINK DA JUKEBOX PARA ALUNOS
 
     // Links de Professor
     { icon: Book, text: 'Minhas Disciplinas', href: '/professor/minhas-disciplinas', roles: ['PROFESSOR'] },
     { icon: PenSquare, text: 'Cadastrar Conteúdo', href: '/professor/cadastrar-conteudo', roles: ['PROFESSOR'] },
     { icon: FileEdit, text: 'Gerir Conteúdo', href: '/professor/gerir-conteudo', roles: ['PROFESSOR'] },
     { icon: ClipboardList, text: 'Ver Submissões', href: '/professor/submissoes', roles: ['PROFESSOR'] },
+    { icon: Music, text: 'Jukebox Player', href: '/professor/jukebox', roles: ['PROFESSOR'] }, // <<< NOVO LINK DA JUKEBOX PARA PROFESSORES
   ];
 
   const visibleMenuItems = menuItems.filter(item => item.roles.includes(userRole));
