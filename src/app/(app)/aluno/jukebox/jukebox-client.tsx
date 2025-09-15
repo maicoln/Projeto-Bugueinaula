@@ -23,6 +23,8 @@ type SpotifyTrack = {
   external_urls: { spotify: string };
 };
 
+type SupabaseFunctionError = Error & { context?: { body?: { error?: string } } };
+
 function getUserNome(profiles: Profile | Profile[] | null): string {
   if (!profiles) return 'Desconhecido';
   if (Array.isArray(profiles)) return profiles[0]?.nome ?? 'Desconhecido';
@@ -35,9 +37,7 @@ async function fetchQueue(): Promise<JukeboxQueueItem[]> {
     .select(`id, song_title, thumbnail_url, profiles ( nome )`)
     .in('status', ['queued', 'playing'])
     .order('created_at', { ascending: true });
-
   if (error) throw error;
-
   return data.map(item => ({
     id: item.id,
     song_title: item.song_title,
@@ -53,9 +53,7 @@ async function fetchHistory(): Promise<JukeboxQueueItem[]> {
     .eq('status', 'played')
     .order('created_at', { ascending: false })
     .limit(10);
-
   if (error) throw error;
-
   return data.map(item => ({
     id: item.id,
     song_title: item.song_title,
@@ -64,34 +62,31 @@ async function fetchHistory(): Promise<JukeboxQueueItem[]> {
   }));
 }
 
-// Função para buscar músicas no Spotify via API do servidor
-async function searchSpotifyTracks(query: string): Promise<SpotifyTrack[]> {
-  const res = await fetch(`/api/spotify/search?q=${encodeURIComponent(query)}`);
-  const data = await res.json();
-  return data.tracks.items;
-}
-
 export default function JukeboxClientPage() {
   const { data: queue, mutate: mutateQueue } = useSWR<JukeboxQueueItem[]>('jukebox_queue', fetchQueue, { refreshInterval: 1000 });
   const { data: history } = useSWR<JukeboxQueueItem[]>('jukebox_history', fetchHistory, { refreshInterval: 5000 });
 
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState<SpotifyTrack[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
 
+  const currentSong = queue?.[0] ?? null;
+  const nextSongs = queue?.slice(1) ?? [];
+
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!searchQuery.trim()) return;
-
+    if (!searchTerm.trim()) return;
     setIsSearching(true);
     setMessage({ type: '', text: '' });
 
     try {
-      const results = await searchSpotifyTracks(searchQuery);
-      setSearchResults(results);
+      const res = await fetch(`/api/spotify/search?q=${encodeURIComponent(searchTerm)}`);
+      if (!res.ok) throw new Error('Erro ao buscar músicas no Spotify.');
+      const data = await res.json();
+      setSearchResults(data.tracks.items);
     } catch (err) {
-      setMessage({ type: 'error', text: 'Erro ao buscar músicas no Spotify.' });
+      setMessage({ type: 'error', text: (err as Error).message });
     } finally {
       setIsSearching(false);
     }
@@ -100,11 +95,11 @@ export default function JukeboxClientPage() {
   const handleAddTrack = async (track: SpotifyTrack) => {
     try {
       await supabase.from('jukebox_queue').insert({
+        youtube_url: track.external_urls.spotify, // aqui você pode usar spotify link
         song_title: track.name,
-        thumbnail_url: track.album.images[0]?.url ?? null,
+        thumbnail_url: track.album.images[0]?.url,
         status: 'queued',
-        profiles: { nome: 'Você' },
-        external_url: track.external_urls.spotify,
+        profiles: { nome: 'Você' } // ou perfil real
       });
       setMessage({ type: 'success', text: `"${track.name}" adicionada à fila!` });
       mutateQueue();
@@ -113,15 +108,12 @@ export default function JukeboxClientPage() {
     }
   };
 
-  const currentSong = queue?.[0] ?? null;
-  const nextSongs = queue?.slice(1) ?? [];
-
   return (
     <div className="p-6 animate-fade-in space-y-8">
       {/* Cabeçalho */}
       <div className="text-center">
         <h1 className="text-3xl font-bold tracking-tight mb-1">Jukebox Coletiva</h1>
-        <p className="text-gray-500 dark:text-gray-400">Busque e adicione músicas do Spotify à fila para tocar para todos!</p>
+        <p className="text-gray-500 dark:text-gray-400">Busque músicas no Spotify e adicione à fila!</p>
       </div>
 
       {/* Formulário de busca */}
@@ -130,9 +122,9 @@ export default function JukeboxClientPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400 pointer-events-none" />
           <input
             type="text"
-            placeholder="Pesquisar música ou artista"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Digite o nome da música ou artista..."
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
             required
             className="w-full pl-10 p-3 rounded-lg border bg-transparent shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
           />
@@ -147,35 +139,29 @@ export default function JukeboxClientPage() {
         </button>
       </form>
 
-      {message.text && (
-        <div className={`max-w-2xl mx-auto mt-2 flex items-center rounded-md p-3 text-sm ${message.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-          <AlertCircle className="h-5 w-5 mr-2 flex-shrink-0" /> {message.text}
-        </div>
-      )}
-
-      {/* Resultados da pesquisa */}
+      {/* Resultados da busca */}
       {searchResults.length > 0 && (
-        <div className="max-w-2xl mx-auto space-y-4">
-          <h3 className="text-xl font-bold">Resultados da pesquisa</h3>
-          <ul className="space-y-2">
+        <div className="max-w-3xl mx-auto space-y-4">
+          <h3 className="text-xl font-bold">Resultados da busca</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {searchResults.map(track => (
-              <li key={track.id} className="flex items-center gap-3 p-2 rounded-lg border hover:bg-gray-100 dark:hover:bg-gray-700/50 transition">
+              <div key={track.id} className="flex items-center gap-3 rounded-lg border p-3 shadow-sm hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700/50 transition">
                 {track.album.images[0]?.url && (
-                  <Image src={track.album.images[0].url} alt={track.name} width={48} height={48} className="h-12 w-12 rounded object-cover" />
+                  <Image src={track.album.images[0].url} alt={track.name} width={48} height={48} className="rounded object-cover" />
                 )}
-                <div className="flex-grow">
+                <div className="flex-1">
                   <p className="font-semibold text-gray-800 dark:text-gray-200">{track.name}</p>
                   <p className="text-xs text-gray-500 dark:text-gray-400">{track.artists.map(a => a.name).join(', ')}</p>
                 </div>
                 <button
                   onClick={() => handleAddTrack(track)}
-                  className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg text-sm font-semibold transition"
+                  className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded-lg font-semibold text-sm"
                 >
                   Adicionar
                 </button>
-              </li>
+              </div>
             ))}
-          </ul>
+          </div>
         </div>
       )}
 
@@ -245,6 +231,13 @@ export default function JukeboxClientPage() {
           </div>
         </div>
       </div>
+
+      {/* Mensagem global */}
+      {message.text && (
+        <div className={`fixed bottom-4 left-1/2 -translate-x-1/2 px-6 py-3 rounded-md shadow-md text-sm ${message.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'} flex items-center gap-2`}>
+          <AlertCircle className="h-5 w-5" /> {message.text}
+        </div>
+      )}
     </div>
   );
 }
