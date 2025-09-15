@@ -7,65 +7,23 @@ import { Music, Send, Loader2, AlertCircle, Search } from 'lucide-react';
 import Image from 'next/image';
 
 type Profile = { nome: string | null };
+type JukeboxQueueItem = { id: number; song_title: string | null; thumbnail_url: string | null; profiles: Profile | Profile[] | null };
+type SpotifyTrack = { id: string; name: string; album: { images: { url: string }[] }; artists: { name: string }[] };
 
-type JukeboxQueueItem = {
-  id: number;
-  song_title: string | null;
-  thumbnail_url: string | null;
-  profiles: Profile | Profile[] | null;
-};
-
-type SpotifyTrack = {
-  id: string;
-  name: string;
-  album: { images: { url: string }[] };
-  artists: { name: string }[];
-  external_urls: { spotify: string };
-};
-
-type SupabaseFunctionError = Error & { context?: { body?: { error?: string } } };
-
-function getUserNome(profiles: Profile | Profile[] | null): string {
+function getUserNome(profiles: Profile | Profile[] | null) {
   if (!profiles) return 'Desconhecido';
   if (Array.isArray(profiles)) return profiles[0]?.nome ?? 'Desconhecido';
   return profiles.nome ?? 'Desconhecido';
 }
 
 async function fetchQueue(): Promise<JukeboxQueueItem[]> {
-  const { data, error } = await supabase
-    .from('jukebox_queue')
-    .select(`id, song_title, thumbnail_url, profiles ( nome )`)
-    .in('status', ['queued', 'playing'])
-    .order('created_at', { ascending: true });
+  const { data, error } = await supabase.from('jukebox_queue').select(`id, song_title, thumbnail_url, profiles ( nome )`).in('status', ['queued', 'playing']).order('created_at', { ascending: true });
   if (error) throw error;
-  return data.map(item => ({
-    id: item.id,
-    song_title: item.song_title,
-    thumbnail_url: item.thumbnail_url ?? null,
-    profiles: Array.isArray(item.profiles) ? item.profiles[0] ?? null : item.profiles ?? null,
-  }));
-}
-
-async function fetchHistory(): Promise<JukeboxQueueItem[]> {
-  const { data, error } = await supabase
-    .from('jukebox_queue')
-    .select(`id, song_title, thumbnail_url, profiles ( nome )`)
-    .eq('status', 'played')
-    .order('created_at', { ascending: false })
-    .limit(10);
-  if (error) throw error;
-  return data.map(item => ({
-    id: item.id,
-    song_title: item.song_title,
-    thumbnail_url: item.thumbnail_url ?? null,
-    profiles: Array.isArray(item.profiles) ? item.profiles[0] ?? null : item.profiles ?? null,
-  }));
+  return data.map(item => ({ id: item.id, song_title: item.song_title, thumbnail_url: item.thumbnail_url, profiles: Array.isArray(item.profiles) ? item.profiles[0] ?? null : item.profiles ?? null }));
 }
 
 export default function JukeboxClientPage() {
   const { data: queue, mutate: mutateQueue } = useSWR<JukeboxQueueItem[]>('jukebox_queue', fetchQueue, { refreshInterval: 1000 });
-  const { data: history } = useSWR<JukeboxQueueItem[]>('jukebox_history', fetchHistory, { refreshInterval: 5000 });
-
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState<SpotifyTrack[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -77,13 +35,14 @@ export default function JukeboxClientPage() {
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!searchTerm.trim()) return;
+
     setIsSearching(true);
     setMessage({ type: '', text: '' });
 
     try {
       const res = await fetch(`/api/spotify/search?q=${encodeURIComponent(searchTerm)}`);
       if (!res.ok) throw new Error('Erro ao buscar músicas no Spotify.');
-      const data: SpotifyTrack[] = await res.json();
+      const data = await res.json();
       setSearchResults(data);
     } catch (err) {
       setMessage({ type: 'error', text: (err as Error).message });
@@ -94,18 +53,23 @@ export default function JukeboxClientPage() {
 
   const handleAddTrack = async (track: SpotifyTrack) => {
     try {
-      await supabase.from('jukebox_queue').insert({
-        youtube_url: track.external_urls.spotify,
+      const youtubeRes = await fetch(`/api/youtube/search?q=${encodeURIComponent(track.name + ' ' + track.artists.map(a => a.name).join(' '))}`);
+      const youtubeData = await youtubeRes.json();
+      const youtubeUrl = youtubeData.items?.[0]?.url || '';
+      if (!youtubeUrl) throw new Error('Não foi possível encontrar o vídeo no YouTube');
+
+      await supabase.from('jukebox_queue').insert([{
+        youtube_url: youtubeUrl,
         song_title: track.name,
-        thumbnail_url: track.album.images[0]?.url ?? null,
+        thumbnail_url: track.album.images[0]?.url || 'https://via.placeholder.com/150',
         status: 'queued',
-        profiles: { nome: 'Você' },
-      });
+        profiles: [{ nome: 'Você' }],
+      }]);
+
       setMessage({ type: 'success', text: `"${track.name}" adicionada à fila!` });
       mutateQueue();
     } catch (err) {
-      console.error(err);
-      setMessage({ type: 'error', text: 'Não foi possível adicionar a música.' });
+      setMessage({ type: 'error', text: (err as Error).message });
     }
   };
 
@@ -114,7 +78,7 @@ export default function JukeboxClientPage() {
       {/* Cabeçalho */}
       <div className="text-center">
         <h1 className="text-3xl font-bold tracking-tight mb-1">Jukebox Coletiva</h1>
-        <p className="text-gray-500 dark:text-gray-400">Busque músicas no Spotify e adicione à fila!</p>
+        <p className="text-gray-500 dark:text-gray-400">Busque músicas no Spotify e adicione à fila (link do YouTube automático).</p>
       </div>
 
       {/* Formulário de busca */}
@@ -123,7 +87,7 @@ export default function JukeboxClientPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400 pointer-events-none" />
           <input
             type="text"
-            placeholder="Digite o nome da música ou artista..."
+            placeholder="Digite nome da música ou artista..."
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
             required
@@ -147,9 +111,7 @@ export default function JukeboxClientPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {searchResults.map(track => (
               <div key={track.id} className="flex items-center gap-3 rounded-lg border p-3 shadow-sm hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700/50 transition">
-                {track.album.images[0]?.url && (
-                  <Image src={track.album.images[0].url} alt={track.name} width={48} height={48} className="rounded object-cover" />
-                )}
+                {track.album.images[0]?.url && <Image src={track.album.images[0].url} alt={track.name} width={48} height={48} className="rounded object-cover" />}
                 <div className="flex-1">
                   <p className="font-semibold text-gray-800 dark:text-gray-200">{track.name}</p>
                   <p className="text-xs text-gray-500 dark:text-gray-400">{track.artists.map(a => a.name).join(', ')}</p>
@@ -165,77 +127,6 @@ export default function JukeboxClientPage() {
           </div>
         </div>
       )}
-
-      {/* Player */}
-      {currentSong && (
-        <div className="flex flex-col lg:flex-row gap-8 items-center justify-center">
-          <div className="relative w-full lg:w-1/2 aspect-video rounded-xl overflow-hidden shadow-2xl bg-black">
-            {currentSong.thumbnail_url ? (
-              <Image src={currentSong.thumbnail_url} alt={currentSong.song_title ?? 'Música'} fill className="object-cover" />
-            ) : (
-              <div className="flex items-center justify-center w-full h-full bg-gray-900 text-white">
-                <Music size={64} />
-              </div>
-            )}
-          </div>
-          <div className="flex-1 space-y-2">
-            <h2 className="text-2xl font-bold">{currentSong.song_title ?? 'Título indisponível'}</h2>
-            <p className="text-gray-500 dark:text-gray-400">Adicionado por: {getUserNome(currentSong.profiles)}</p>
-            <p className="text-green-500 font-semibold flex items-center gap-1"><Music size={16} /> Tocando agora</p>
-          </div>
-        </div>
-      )}
-
-      {/* Grid fila + histórico */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Fila */}
-        <div className="space-y-4">
-          <h3 className="text-xl font-bold">Próximas músicas</h3>
-          <div className="rounded-lg border bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800 p-4 max-h-[400px] overflow-y-auto">
-            {nextSongs.length === 0 ? (
-              <p className="text-gray-500">A fila está vazia.</p>
-            ) : (
-              <ul className="space-y-2">
-                {nextSongs.map(item => (
-                  <li key={item.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700/50 transition">
-                    {item.thumbnail_url && (
-                      <Image src={item.thumbnail_url} alt={item.song_title ?? 'Música'} width={48} height={48} className="h-12 w-12 rounded object-cover" />
-                    )}
-                    <div className="flex-grow">
-                      <p className="font-semibold text-gray-800 dark:text-gray-200">{item.song_title ?? 'Título indisponível'}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">Adicionado por: {getUserNome(item.profiles)}</p>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-
-        {/* Histórico */}
-        <div className="space-y-4">
-          <h3 className="text-xl font-bold">Últimas músicas tocadas</h3>
-          <div className="rounded-lg border bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800 p-4 max-h-[400px] overflow-y-auto">
-            {!history || history.length === 0 ? (
-              <p className="text-gray-500">Nenhuma música tocada ainda.</p>
-            ) : (
-              <ul className="space-y-2">
-                {history.map(item => (
-                  <li key={item.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700/50 transition">
-                    {item.thumbnail_url && (
-                      <Image src={item.thumbnail_url} alt={item.song_title ?? 'Música'} width={48} height={48} className="h-12 w-12 rounded object-cover" />
-                    )}
-                    <div className="flex-grow">
-                      <p className="font-semibold text-gray-800 dark:text-gray-200">{item.song_title ?? 'Título indisponível'}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">Adicionado por: {getUserNome(item.profiles)}</p>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-      </div>
 
       {/* Mensagem global */}
       {message.text && (
