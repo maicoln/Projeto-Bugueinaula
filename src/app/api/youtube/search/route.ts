@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
     }
 
     const video = data.items[0];
-    return new Response(JSON.stringify({ items: [{ url: `https://www.youtube.com/watch?v=${video.id.videoId}` }] }));
+    return new Response(JSON.stringify({ url: `https://www.youtube.com/watch?v=${video.id.videoId}` }));
   } catch (err) {
     console.error(err);
     return new Response(JSON.stringify({ error: 'Erro no YouTube API' }), { status: 500 });
