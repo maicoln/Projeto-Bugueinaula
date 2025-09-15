@@ -1,55 +1,60 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
-type SpotifySearchResponse = {
-  tracks: {
-    items: {
-      id: string;
-      name: string;
-      album: { images: { url: string }[] };
-      artists: { name: string }[];
-      external_urls: { spotify: string };
-    }[];
-  };
-};
+const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
+const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
 
-export async function GET(req: Request) {
+if (!SPOTIFY_CLIENT_ID || !SPOTIFY_CLIENT_SECRET) {
+  throw new Error('Por favor, configure SPOTIFY_CLIENT_ID e SPOTIFY_CLIENT_SECRET no .env');
+}
+
+async function getSpotifyAccessToken(): Promise<string> {
+  const tokenUrl = 'https://accounts.spotify.com/api/token';
+  const creds = Buffer.from(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`).toString('base64');
+
+  const res = await fetch(tokenUrl, {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${creds}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: 'grant_type=client_credentials',
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Erro ao gerar token Spotify: ${text}`);
+  }
+
+  const data = await res.json();
+  return data.access_token;
+}
+
+export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const query = searchParams.get('q');
 
   if (!query) {
-    return NextResponse.json({ error: 'Query é obrigatória.' }, { status: 400 });
-  }
-
-  const clientId = process.env.SPOTIFY_CLIENT_ID;
-  const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
-
-  if (!clientId || !clientSecret) {
-    return NextResponse.json({ error: 'Variáveis de ambiente do Spotify não configuradas.' }, { status: 500 });
+    return NextResponse.json({ error: 'Parâmetro "q" é obrigatório' }, { status: 400 });
   }
 
   try {
-    // 1️⃣ Obter token
-    const tokenRes = await fetch('https://accounts.spotify.com/api/token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        Authorization: 'Basic ' + Buffer.from(`${clientId}:${clientSecret}`).toString('base64'),
-      },
-      body: new URLSearchParams({ grant_type: 'client_credentials' }),
-    });
-
-    const tokenData = await tokenRes.json();
-    const accessToken = tokenData.access_token;
-
-    // 2️⃣ Buscar músicas
+    const token = await getSpotifyAccessToken();
     const searchRes = await fetch(`https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=10`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
     });
 
-    const data: SpotifySearchResponse = await searchRes.json();
-    return NextResponse.json(data);
+    if (!searchRes.ok) {
+      const text = await searchRes.text();
+      throw new Error(`Erro na busca Spotify: ${text}`);
+    }
+
+    const data = await searchRes.json();
+    // Retorna somente os tracks
+    return NextResponse.json(data.tracks);
   } catch (err) {
-    console.error('Erro na API Spotify:', err);
-    return NextResponse.json({ error: 'Erro ao buscar músicas no Spotify.' }, { status: 500 });
+    console.error(err);
+    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
 }
