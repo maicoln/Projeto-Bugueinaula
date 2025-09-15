@@ -1,28 +1,21 @@
-import { NextRequest, NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 
-const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
-const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
+const clientId = process.env.SPOTIFY_CLIENT_ID!;
+const clientSecret = process.env.SPOTIFY_CLIENT_SECRET!;
 
-if (!SPOTIFY_CLIENT_ID || !SPOTIFY_CLIENT_SECRET) {
-  throw new Error('Por favor, configure SPOTIFY_CLIENT_ID e SPOTIFY_CLIENT_SECRET no .env');
-}
-
-async function getSpotifyAccessToken(): Promise<string> {
-  const tokenUrl = 'https://accounts.spotify.com/api/token';
-  const creds = Buffer.from(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`).toString('base64');
-
-  const res = await fetch(tokenUrl, {
+// Função para obter token de acesso do Spotify
+async function getAccessToken(): Promise<string> {
+  const res = await fetch('https://accounts.spotify.com/api/token', {
     method: 'POST',
     headers: {
-      Authorization: `Basic ${creds}`,
       'Content-Type': 'application/x-www-form-urlencoded',
+      Authorization: 'Basic ' + Buffer.from(`${clientId}:${clientSecret}`).toString('base64'),
     },
     body: 'grant_type=client_credentials',
   });
 
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Erro ao gerar token Spotify: ${text}`);
+    throw new Error('Falha ao obter token do Spotify');
   }
 
   const data = await res.json();
@@ -30,31 +23,38 @@ async function getSpotifyAccessToken(): Promise<string> {
 }
 
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const query = searchParams.get('q');
-
-  if (!query) {
-    return NextResponse.json({ error: 'Parâmetro "q" é obrigatório' }, { status: 400 });
-  }
-
   try {
-    const token = await getSpotifyAccessToken();
-    const searchRes = await fetch(`https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=10`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
+    const { searchParams } = new URL(req.url);
+    const q = searchParams.get('q');
 
-    if (!searchRes.ok) {
-      const text = await searchRes.text();
-      throw new Error(`Erro na busca Spotify: ${text}`);
+    if (!q) {
+      return new Response(JSON.stringify({ error: 'Missing query parameter "q"' }), { status: 400 });
     }
 
-    const data = await searchRes.json();
-    // Retorna somente os tracks
-    return NextResponse.json(data.tracks);
+    const token = await getAccessToken();
+
+    const response = await fetch(
+      `https://api.spotify.com/v1/search?q=${encodeURIComponent(q)}&type=track&limit=10`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      return new Response(JSON.stringify(errorData), { status: response.status });
+    }
+
+    const data = await response.json();
+
+    // Verifica se há tracks, se não retorna array vazio
+    const items = data.tracks?.items ?? [];
+
+    return new Response(JSON.stringify(items), { status: 200 });
   } catch (err) {
-    console.error(err);
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    console.error('Erro ao buscar músicas no Spotify:', err);
+    return new Response(JSON.stringify({ error: 'Internal Server Error' }), { status: 500 });
   }
 }
