@@ -1,8 +1,8 @@
-// Arquivo: src/app/layout.tsx (Corrigido)
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import { Providers } from "./providers"; // ✅ Importando o SWR Provider
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -17,17 +17,18 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    // Garanta que não há espaços ou quebras de linha entre <html> e <body>
     <html lang="pt-BR" suppressHydrationWarning>
       <body className={inter.className}>
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          enableSystem
-          disableTransitionOnChange // Propriedade adicionada para evitar piscadas de tema
-        >
-          {children}
-        </ThemeProvider>
+        <Providers>
+          <ThemeProvider
+            attribute="class"
+            defaultTheme="system"
+            enableSystem
+            disableTransitionOnChange
+          >
+            {children}
+          </ThemeProvider>
+        </Providers>
       </body>
     </html>
   );
