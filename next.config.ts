@@ -5,18 +5,16 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       {
         protocol: 'https',
-        hostname: 'i.ytimg.com',
+        hostname: 'i.ytimg.com', // Domínio das miniaturas do YouTube
         port: '',
         pathname: '/vi/**',
-      },
-      {
-        protocol: 'https',
-        hostname: 'i.scdn.co',
-        port: '',
-        pathname: '/**',
       },
     ],
   },
 };
 
 export default nextConfig;
+
+
+
+

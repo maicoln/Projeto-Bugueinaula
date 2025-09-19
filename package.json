@@ -22,8 +22,7 @@
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-player": "^2.11.0",
-    "swr": "^2.3.6",
-    "yt-search": "^2.13.1"
+    "swr": "^2.3.6"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
@@ -32,7 +31,6 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@types/yt-search": "^2.10.3",
     "autoprefixer": "^10.4.21",
     "eslint": "^9",
     "eslint-config-next": "15.5.2",

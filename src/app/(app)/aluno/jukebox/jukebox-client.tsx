@@ -1,187 +1,236 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import useSWR from 'swr';
 import { supabase } from '@/lib/supabaseClient';
-import { Music, Send, Loader2, AlertCircle, Search } from 'lucide-react';
+import { Youtube, Music, Send, Loader2 } from 'lucide-react';
 import Image from 'next/image';
 
-type Profile = { nome: string | null };
+interface Profile {
+  nome: string | null;
+}
 
-type JukeboxQueueItem = {
+interface JukeboxQueueItem {
   id: number;
   song_title: string | null;
-  youtube_url: string | null;
   thumbnail_url: string | null;
-  profiles: Profile | Profile[] | null;
+  created_at: string;
+  profiles: Profile | null;
+}
+
+type AddSongResponse = {
+  message?: string;
+  error?: string;
+  cooldown?: number;
 };
-
-type YouTubeVideo = {
-  videoId: string;
-  title: string;
-  description: string;
-  url: string;
-  image: string;
-  duration: string;
-  timestamp: string;
-  author: { name: string; url: string };
-};
-
-type SupabaseFunctionError = Error & { context?: { body?: { error?: string } } };
-
-function getUserNome(profiles: Profile | Profile[] | null): string {
-  if (!profiles) return 'Desconhecido';
-  if (Array.isArray(profiles)) return profiles[0]?.nome ?? 'Desconhecido';
-  return profiles.nome ?? 'Desconhecido';
-}
-
-async function fetchQueue(): Promise<JukeboxQueueItem[]> {
-  const { data, error } = await supabase
-    .from('jukebox_queue')
-    .select(`id, song_title, youtube_url, thumbnail_url, profiles ( nome )`)
-    .in('status', ['queued', 'playing'])
-    .order('created_at', { ascending: true });
-
-  if (error) throw error;
-
-  return data.map(item => ({
-    id: item.id,
-    song_title: item.song_title,
-    youtube_url: item.youtube_url,
-    thumbnail_url: item.thumbnail_url,
-    profiles: Array.isArray(item.profiles) ? item.profiles[0] ?? null : item.profiles ?? null,
-  }));
-}
-
-async function fetchHistory(): Promise<JukeboxQueueItem[]> {
-  const { data, error } = await supabase
-    .from('jukebox_queue')
-    .select(`id, song_title, youtube_url, thumbnail_url, profiles ( nome )`)
-    .eq('status', 'played')
-    .order('created_at', { ascending: false })
-    .limit(10);
-
-  if (error) throw error;
-
-  return data.map(item => ({
-    id: item.id,
-    song_title: item.song_title,
-    youtube_url: item.youtube_url,
-    thumbnail_url: item.thumbnail_url,
-    profiles: Array.isArray(item.profiles) ? item.profiles[0] ?? null : item.profiles ?? null,
-  }));
-}
 
 export default function JukeboxClientPage() {
+  const [youtubeUrl, setYoutubeUrl] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [message, setMessage] = useState<{ type: 'success' | 'error' | ''; text: string }>({ type: '', text: '' });
+  const [cooldown, setCooldown] = useState<number>(0);
+
+  // Carrega cooldown do localStorage
+  useEffect(() => {
+    const stored = localStorage.getItem('jukeboxCooldown');
+    if (stored) {
+      const cooldownEnd = Number(stored);
+      const diff = cooldownEnd - Date.now();
+      if (diff > 0) setCooldown(diff);
+      else localStorage.removeItem('jukeboxCooldown');
+    }
+  }, []);
+
+  // Fetchers
+  const fetchQueue = async (): Promise<JukeboxQueueItem[]> => {
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData?.user?.id;
+    if (!userId) return [];
+
+    const { data: profileData } = await supabase
+      .from('profiles')
+      .select('turma_id')
+      .eq('id', userId)
+      .single();
+
+    if (!profileData?.turma_id) return [];
+
+    const turmaId = profileData.turma_id;
+
+    const { data, error } = await supabase
+      .from('jukebox_queue')
+      .select('id, song_title, thumbnail_url, created_at, profiles (nome)')
+      .in('status', ['queued', 'playing'])
+      .eq('turma_id', turmaId)
+      .order('created_at', { ascending: true });
+
+    if (error) throw error;
+    return (data ?? []).map(item => ({
+      id: item.id,
+      song_title: item.song_title,
+      thumbnail_url: item.thumbnail_url,
+      created_at: item.created_at,
+      profiles: Array.isArray(item.profiles) ? item.profiles[0] : item.profiles
+    }));
+  };
+
+  const fetchHistory = async (): Promise<JukeboxQueueItem[]> => {
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData?.user?.id;
+    if (!userId) return [];
+
+    const { data: profileData } = await supabase
+      .from('profiles')
+      .select('turma_id')
+      .eq('id', userId)
+      .single();
+
+    if (!profileData?.turma_id) return [];
+
+    const turmaId = profileData.turma_id;
+
+    const { data, error } = await supabase
+      .from('jukebox_queue')
+      .select('id, song_title, thumbnail_url, created_at, profiles (nome)')
+      .eq('status', 'played')
+      .eq('turma_id', turmaId)
+      .order('created_at', { ascending: false })
+      .limit(20);
+
+    if (error) throw error;
+    return (data ?? []).map(item => ({
+      id: item.id,
+      song_title: item.song_title,
+      thumbnail_url: item.thumbnail_url,
+      created_at: item.created_at,
+      profiles: Array.isArray(item.profiles) ? item.profiles[0] : item.profiles
+    }));
+  };
+
   const { data: queue, mutate: mutateQueue } = useSWR<JukeboxQueueItem[]>('jukebox_queue', fetchQueue, { refreshInterval: 1000 });
   const { data: history } = useSWR<JukeboxQueueItem[]>('jukebox_history', fetchHistory, { refreshInterval: 5000 });
 
-  const [searchTerm, setSearchTerm] = useState('');
-  const [searchResults, setSearchResults] = useState<YouTubeVideo[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [message, setMessage] = useState({ type: '', text: '' });
+  const formatCooldown = (ms: number) => {
+    const totalSeconds = Math.ceil(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  const handleSubmitSong = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!youtubeUrl.trim()) return;
+
+    setIsSubmitting(true);
+    setMessage({ type: '', text: '' });
+
+    try {
+      const result = await supabase.functions.invoke<AddSongResponse>(
+        'adicionar-musica',
+        {
+          method: 'POST',
+          body: JSON.stringify({ youtube_url: youtubeUrl })
+        }
+      );
+
+      const data = result.data as AddSongResponse | null;
+      if (!data) {
+        setMessage({ type: 'error', text: 'Não foi possível adicionar a música.' });
+        return;
+      }
+
+      if (typeof data.cooldown === 'number' && data.cooldown > 0) {
+        setCooldown(data.cooldown);
+        localStorage.setItem('jukeboxCooldown', (Date.now() + data.cooldown).toString());
+        setMessage({ type: 'error', text: `Aguarde para adicionar outra música: ${formatCooldown(data.cooldown)}` });
+        return;
+      }
+
+      if (data.error) {
+        setMessage({ type: 'error', text: data.error });
+        return;
+      }
+
+      if (data.message) {
+        setMessage({ type: 'success', text: data.message });
+        setYoutubeUrl('');
+        mutateQueue();
+        return;
+      }
+
+      setMessage({ type: 'error', text: 'Resposta inesperada do servidor.' });
+    } catch {
+      setMessage({ type: 'error', text: 'Ocorreu um erro desconhecido.' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Atualiza cooldown em tempo real
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const interval = setInterval(() => {
+      setCooldown(prev => {
+        const next = prev - 1000;
+        if (next <= 0) {
+          localStorage.removeItem('jukeboxCooldown');
+          return 0;
+        }
+        return next;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [cooldown]);
 
   const currentSong = queue?.[0] ?? null;
   const nextSongs = queue?.slice(1) ?? [];
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!searchTerm.trim()) return;
-
-    setIsSearching(true);
-    setMessage({ type: '', text: '' });
-
-    try {
-      const res = await fetch(`/api/youtube/search?q=${encodeURIComponent(searchTerm)}`);
-      if (!res.ok) throw new Error('Erro ao buscar vídeos no YouTube.');
-      const data = await res.json();
-      setSearchResults(data.videos);
-    } catch (err) {
-      setMessage({ type: 'error', text: (err as Error).message });
-    } finally {
-      setIsSearching(false);
-    }
-  };
-
-  const handleAddVideo = async (video: YouTubeVideo) => {
-    try {
-      await supabase.from('jukebox_queue').insert({
-        youtube_url: video.url,
-        song_title: video.title,
-        thumbnail_url: video.image,
-        status: 'queued',
-        profiles: { nome: 'Você' }, // ou perfil real
-      });
-      setMessage({ type: 'success', text: `"${video.title}" adicionada à fila!` });
-      mutateQueue();
-    } catch (err) {
-      setMessage({ type: 'error', text: 'Não foi possível adicionar a música.' });
-    }
-  };
-
   return (
     <div className="p-6 animate-fade-in space-y-8">
-      {/* Cabeçalho */}
       <div className="text-center">
         <h1 className="text-3xl font-bold tracking-tight mb-1">Jukebox Coletiva</h1>
-        <p className="text-gray-500 dark:text-gray-400">Busque músicas no YouTube e adicione à fila!</p>
+        <p className="text-gray-500 dark:text-gray-400">Adicione uma música do YouTube à fila para tocar para todos!</p>
       </div>
 
-      {/* Formulário de busca */}
-      <form onSubmit={handleSearch} className="max-w-2xl mx-auto rounded-lg border bg-white p-6 shadow-md dark:border-gray-700 dark:bg-gray-800 flex flex-col sm:flex-row gap-3">
+      <form onSubmit={handleSubmitSong} className="max-w-2xl mx-auto rounded-lg border bg-white p-6 shadow-md dark:border-gray-700 dark:bg-gray-800 flex flex-col sm:flex-row gap-3">
         <div className="relative flex-grow">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400 pointer-events-none" />
+          <Youtube className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400 pointer-events-none" />
           <input
             type="text"
-            placeholder="Digite o nome da música ou artista..."
-            value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
+            placeholder="https://www.youtube.com/watch?v=..."
+            value={youtubeUrl}
+            onChange={e => setYoutubeUrl(e.target.value)}
             required
             className="w-full pl-10 p-3 rounded-lg border bg-transparent shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
           />
         </div>
         <button
           type="submit"
-          disabled={isSearching}
+          disabled={isSubmitting || cooldown > 0}
           className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3 rounded-lg flex items-center justify-center gap-2 disabled:opacity-50 transition"
         >
-          {isSearching ? <Loader2 className="animate-spin" /> : <Send size={16} />}
-          Buscar
+          {isSubmitting ? <Loader2 className="animate-spin" /> : <Send size={16} />}
+          {cooldown > 0 ? `Aguarde ${formatCooldown(cooldown)}` : 'Enviar'}
         </button>
       </form>
 
-      {/* Resultados da busca */}
-      {searchResults.length > 0 && (
-        <div className="max-w-3xl mx-auto space-y-4">
-          <h3 className="text-xl font-bold">Resultados da busca</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {searchResults.map(video => (
-              <div key={video.videoId} className="flex items-center gap-3 rounded-lg border p-3 shadow-sm hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700/50 transition">
-                {video.image && (
-                  <Image src={video.image} alt={video.title} width={48} height={48} className="rounded object-cover" />
-                )}
-                <div className="flex-1">
-                  <p className="font-semibold text-gray-800 dark:text-gray-200">{video.title}</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">{video.author.name}</p>
-                </div>
-                <button
-                  onClick={() => handleAddVideo(video)}
-                  className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded-lg font-semibold text-sm"
-                >
-                  Adicionar
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
+      {message.text && (
+        <p className={`text-center font-semibold ${message.type === 'error' ? 'text-red-500' : 'text-green-500'}`}>
+          {message.text}
+        </p>
       )}
 
-      {/* Player central */}
       {currentSong && (
         <div className="flex flex-col lg:flex-row gap-8 items-center justify-center">
           <div className="relative w-full lg:w-1/2 aspect-video rounded-xl overflow-hidden shadow-2xl bg-black">
             {currentSong.thumbnail_url ? (
-              <Image src={currentSong.thumbnail_url} alt={currentSong.song_title ?? 'Música'} fill className="object-cover" />
+              <Image
+                src={currentSong.thumbnail_url}
+                alt={currentSong.song_title ?? 'Música'}
+                fill
+                sizes="100vw"
+                className="object-cover"
+              />
             ) : (
               <div className="flex items-center justify-center w-full h-full bg-gray-900 text-white">
                 <Music size={64} />
@@ -190,15 +239,13 @@ export default function JukeboxClientPage() {
           </div>
           <div className="flex-1 space-y-2">
             <h2 className="text-2xl font-bold">{currentSong.song_title ?? 'Título indisponível'}</h2>
-            <p className="text-gray-500 dark:text-gray-400">Adicionado por: {getUserNome(currentSong.profiles)}</p>
+            <p className="text-gray-500 dark:text-gray-400">Adicionado por: {currentSong.profiles?.nome ?? 'Desconhecido'}</p>
             <p className="text-green-500 font-semibold flex items-center gap-1"><Music size={16} /> Tocando agora</p>
           </div>
         </div>
       )}
 
-      {/* Grid fila + histórico */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Fila */}
         <div className="space-y-4">
           <h3 className="text-xl font-bold">Próximas músicas</h3>
           <div className="rounded-lg border bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800 p-4 max-h-[400px] overflow-y-auto">
@@ -206,12 +253,18 @@ export default function JukeboxClientPage() {
               <p className="text-gray-500">A fila está vazia.</p>
             ) : (
               <ul className="space-y-2">
-                {nextSongs.map((item, index) => (
+                {nextSongs.map(item => (
                   <li key={item.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700/50 transition">
-                    {item.thumbnail_url && <Image src={item.thumbnail_url} alt={item.song_title ?? 'Música'} width={48} height={48} className="h-12 w-12 rounded object-cover" />}
+                    {item.thumbnail_url ? (
+                      <Image src={item.thumbnail_url} alt={item.song_title ?? 'Música'} width={48} height={48} sizes="48px" className="h-12 w-12 rounded object-cover" />
+                    ) : (
+                      <div className="flex items-center justify-center h-12 w-12 bg-gray-900 text-white rounded">
+                        <Music size={16} />
+                      </div>
+                    )}
                     <div className="flex-grow">
                       <p className="font-semibold text-gray-800 dark:text-gray-200">{item.song_title ?? 'Título indisponível'}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">Adicionado por: {getUserNome(item.profiles)}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">Adicionado por: {item.profiles?.nome ?? 'Desconhecido'}</p>
                     </div>
                   </li>
                 ))}
@@ -220,35 +273,33 @@ export default function JukeboxClientPage() {
           </div>
         </div>
 
-        {/* Histórico */}
         <div className="space-y-4">
           <h3 className="text-xl font-bold">Últimas músicas tocadas</h3>
           <div className="rounded-lg border bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800 p-4 max-h-[400px] overflow-y-auto">
-            {!history || history.length === 0 ? (
-              <p className="text-gray-500">Nenhuma música tocada ainda.</p>
-            ) : (
+            {history && history.length > 0 ? (
               <ul className="space-y-2">
                 {history.map(item => (
                   <li key={item.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700/50 transition">
-                    {item.thumbnail_url && <Image src={item.thumbnail_url} alt={item.song_title ?? 'Música'} width={48} height={48} className="h-12 w-12 rounded object-cover" />}
+                    {item.thumbnail_url ? (
+                      <Image src={item.thumbnail_url} alt={item.song_title ?? 'Música'} width={48} height={48} sizes="48px" className="h-12 w-12 rounded object-cover" />
+                    ) : (
+                      <div className="flex items-center justify-center h-12 w-12 bg-gray-900 text-white rounded">
+                        <Music size={16} />
+                      </div>
+                    )}
                     <div className="flex-grow">
                       <p className="font-semibold text-gray-800 dark:text-gray-200">{item.song_title ?? 'Título indisponível'}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">Adicionado por: {getUserNome(item.profiles)}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">Adicionado por: {item.profiles?.nome ?? 'Desconhecido'}</p>
                     </div>
                   </li>
                 ))}
               </ul>
+            ) : (
+              <p className="text-gray-500">Nenhuma música tocada ainda.</p>
             )}
           </div>
         </div>
       </div>
-
-      {/* Mensagem global */}
-      {message.text && (
-        <div className={`fixed bottom-4 left-1/2 -translate-x-1/2 px-6 py-3 rounded-md shadow-md text-sm ${message.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'} flex items-center gap-2`}>
-          <AlertCircle className="h-5 w-5" /> {message.text}
-        </div>
-      )}
     </div>
   );
 }
