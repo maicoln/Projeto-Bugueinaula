@@ -125,7 +125,7 @@ export default function JukeboxClientPage() {
     setMessage({ type: '', text: '' });
 
     try {
-      const result = await supabase.functions.invoke<AddSongResponse>(
+      const { data: responseData, error } = await supabase.functions.invoke<AddSongResponse>(
         'adicionar-musica',
         {
           method: 'POST',
@@ -133,34 +133,39 @@ export default function JukeboxClientPage() {
         }
       );
 
-      const data = result.data as AddSongResponse | null;
-      if (!data) {
-        setMessage({ type: 'error', text: 'Não foi possível adicionar a música.' });
+      if (error) throw error;
+
+      if (!responseData) {
+        setMessage({ type: 'error', text: 'Resposta inválida do servidor.' });
         return;
       }
-
-      if (typeof data.cooldown === 'number' && data.cooldown > 0) {
-        setCooldown(data.cooldown);
-        localStorage.setItem('jukeboxCooldown', (Date.now() + data.cooldown).toString());
-        setMessage({ type: 'error', text: `Aguarde para adicionar outra música: ${formatCooldown(data.cooldown)}` });
-        return;
+      
+      // ===================================================================
+      // LÓGICA CORRIGIDA
+      // ===================================================================
+      
+      // 1. Defina a mensagem (erro ou sucesso)
+      if (responseData.error) {
+        setMessage({ type: 'error', text: responseData.error });
+      } else if (responseData.message) {
+        setMessage({ type: 'success', text: responseData.message });
+        setYoutubeUrl(''); // Limpa o campo apenas em caso de sucesso
+        mutateQueue();    // Atualiza a fila
       }
 
-      if (data.error) {
-        setMessage({ type: 'error', text: data.error });
-        return;
+      // 2. SEMPRE verifique se há um cooldown e aplique-o
+      if (typeof responseData.cooldown === 'number' && responseData.cooldown > 0) {
+        setCooldown(responseData.cooldown);
+        localStorage.setItem('jukeboxCooldown', (Date.now() + responseData.cooldown).toString());
       }
+      // ===================================================================
 
-      if (data.message) {
-        setMessage({ type: 'success', text: data.message });
-        setYoutubeUrl('');
-        mutateQueue();
-        return;
+    } catch (err) {
+      if (err instanceof Error) {
+        setMessage({ type: 'error', text: err.message });
+      } else {
+        setMessage({ type: 'error', text: 'Ocorreu um erro desconhecido.' });
       }
-
-      setMessage({ type: 'error', text: 'Resposta inesperada do servidor.' });
-    } catch {
-      setMessage({ type: 'error', text: 'Ocorreu um erro desconhecido.' });
     } finally {
       setIsSubmitting(false);
     }

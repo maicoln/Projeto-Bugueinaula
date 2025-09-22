@@ -21,110 +21,99 @@ Deno.serve(async (req: Request) => {
     const youtubeUrl = payload.youtube_url;
     if (!youtubeUrl) throw new Error("URL do YouTube é obrigatória.");
 
-    // 1. Cria um cliente temporário APENAS para validar o usuário
+    // 1. Autentica o usuário
     const authHeader = req.headers.get('Authorization')!;
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_ANON_KEY') ?? '',
       { global: { headers: { Authorization: authHeader } } }
     );
-
     const { data: { user } } = await supabaseClient.auth.getUser();
     if (!user) throw new Error("Usuário não autenticado.");
 
-    // 2. Cria o cliente ADMIN para TODAS as operações de banco de dados
+    // 2. Cria o cliente Admin para operações de DB
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // =======================================================================
-    // MUDANÇA PRINCIPAL: Usamos o cliente ADMIN para buscar o perfil.
-    // Ele tem permissão para ler qualquer perfil, então a consulta funciona.
-    // =======================================================================
+    // 3. Busca o perfil do usuário para obter o turma_id
     const { data: profileData, error: profileError } = await supabaseAdmin
       .from('profiles')
       .select('turma_id')
-      .eq('id', user.id) // Usamos o ID do usuário já autenticado
+      .eq('id', user.id)
       .single();
-
     if (profileError || !profileData?.turma_id) {
-      console.error("Erro ao buscar perfil com admin:", profileError);
       throw new Error("Não foi possível determinar a turma do usuário.");
     }
     const turmaId = profileData.turma_id;
-    // =======================================================================
 
     const videoId = getYouTubeVideoId(youtubeUrl);
     if (!videoId) throw new Error("URL do YouTube inválida.");
 
-    // Cooldown: última música adicionada pelo usuário
+    // (Opcional, mas recomendado: Lógica de cooldown e verificação de duplicados)
+    // Você pode descomentar esta seção se quiser reativar estas regras.
     const { data: lastSubmission } = await supabaseAdmin
       .from('jukebox_queue')
       .select('created_at')
       .eq('aluno_id', user.id)
-      .eq('turma_id', turmaId)
       .order('created_at', { ascending: false })
       .limit(1)
       .single();
 
     if (lastSubmission) {
-      const lastTime = new Date(lastSubmission.created_at).getTime();
-      const diff = Date.now() - lastTime;
+      const diff = Date.now() - new Date(lastSubmission.created_at).getTime();
       const cooldownMs = 10 * 60 * 1000; // 10 minutos
-      
       if (diff < cooldownMs) {
-        return new Response(JSON.stringify({
-          error: 'Você só pode adicionar uma música a cada 10 minutos.',
-          cooldown: cooldownMs - diff // Retorna o tempo que AINDA falta
-        }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          status: 200 // Usando 200 para que o frontend possa processar a mensagem de erro e o cooldown
-        });
+        return new Response(JSON.stringify({ error: 'Aguarde para adicionar outra música.', cooldown: cooldownMs - diff }), 
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 });
       }
     }
 
-    // Verifica se já há música na fila
-    const { count: queuedCount } = await supabaseAdmin
-      .from('jukebox_queue')
-      .select('*', { count: 'exact', head: true })
-      .eq('aluno_id', user.id)
-      .eq('turma_id', turmaId)
-      .eq('status', 'queued');
-
-    if (queuedCount && queuedCount > 0) {
-      return new Response(JSON.stringify({
-        error: 'Você já tem uma música na fila. Espere ela tocar.'
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200
-      });
+    
+    // ===================================================================
+    // PARTE RESTAURADA: BUSCA DE DADOS NO YOUTUBE
+    // ===================================================================
+    const YOUTUBE_API_KEY = Deno.env.get('YOUTUBE_API_KEY');
+    if (!YOUTUBE_API_KEY) {
+      throw new Error("A chave da API do YouTube não foi configurada no servidor.");
     }
 
-    // Busca dados do YouTube
-    const YOUTUBE_API_KEY = Deno.env.get('YOUTUBE_API_KEY');
     const youtubeResponse = await fetch(`https://www.googleapis.com/youtube/v3/videos?id=${videoId}&key=${YOUTUBE_API_KEY}&part=snippet`);
-    if (!youtubeResponse.ok) throw new Error("Não foi possível obter dados do YouTube.");
+    
+    if (!youtubeResponse.ok) {
+        console.error('Erro na resposta da API do YouTube:', await youtubeResponse.text());
+        throw new Error("Não foi possível obter dados do YouTube. Verifique a chave da API.");
+    }
+    
     const youtubeData = await youtubeResponse.json();
     const videoDetails = youtubeData.items?.[0]?.snippet;
-    if (!videoDetails) throw new Error("Vídeo não encontrado no YouTube.");
+    
+    if (!videoDetails) {
+        throw new Error("Vídeo não encontrado no YouTube com o ID fornecido.");
+    }
+    // ===================================================================
 
-    // Insere música na fila
+    // 4. Insere a música na fila com todos os dados corretos
     const newSong = {
       youtube_url: `https://www.youtube.com/watch?v=${videoId}`,
-      song_title: videoDetails.title,
-      thumbnail_url: videoDetails.thumbnails?.default?.url ?? null,
+      song_title: videoDetails.title, // <-- Valor correto
+      thumbnail_url: videoDetails.thumbnails?.default?.url ?? null, // <-- Valor correto
       aluno_id: user.id,
-      turma_id: turmaId, // AGORA VAI COM O VALOR CORRETO!
+      turma_id: turmaId,
       status: 'queued'
     };
 
     const { error: insertError } = await supabaseAdmin.from('jukebox_queue').insert(newSong);
-    if (insertError) throw insertError;
+    if (insertError) {
+        console.error("Erro ao inserir no Supabase: ", insertError);
+        throw insertError;
+    }
 
+    // 5. Retorna sucesso
     return new Response(JSON.stringify({
       message: "Música adicionada com sucesso!",
-      cooldown: 10 * 60 * 1000 // Inicia novo cooldown de 10 min
+      cooldown: 10 * 60 * 1000 
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200
@@ -132,7 +121,6 @@ Deno.serve(async (req: Request) => {
 
   } catch (err) {
     const error = err as Error;
-    console.error("Erro na Edge Function:", error.message);
     return new Response(JSON.stringify({ error: error.message }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 400
