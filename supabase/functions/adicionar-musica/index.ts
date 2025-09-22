@@ -1,27 +1,33 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { corsHeaders } from '../_shared/cors.ts';
 
+// Interface para o corpo da requisição
 interface AddSongPayload {
   youtube_url: string;
 }
 
+// Função para extrair o ID do vídeo de uma URL do YouTube
 function getYouTubeVideoId(url: string): string | null {
   const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
   const match = url.match(regExp);
-  return match && match[2].length === 11 ? match[2] : null;
+  return (match && match[2].length === 11) ? match[2] : null;
 }
 
 Deno.serve(async (req: Request) => {
+  // Responde a requisições OPTIONS (necessário para CORS)
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
   try {
+    // 1. Valida a requisição
     const payload: AddSongPayload = await req.json();
     const youtubeUrl = payload.youtube_url;
-    if (!youtubeUrl) throw new Error("URL do YouTube é obrigatória.");
+    if (!youtubeUrl) {
+      throw new Error("A URL do YouTube é obrigatória.");
+    }
 
-    // 1. Autentica o usuário
+    // 2. Autentica o usuário a partir do token enviado pelo frontend
     const authHeader = req.headers.get('Authorization')!;
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -29,101 +35,86 @@ Deno.serve(async (req: Request) => {
       { global: { headers: { Authorization: authHeader } } }
     );
     const { data: { user } } = await supabaseClient.auth.getUser();
-    if (!user) throw new Error("Usuário não autenticado.");
+    if (!user) {
+      throw new Error("Usuário não autenticado. Sessão inválida ou expirada.");
+    }
 
-    // 2. Cria o cliente Admin para operações de DB
+    // 3. Cria o cliente Admin para realizar operações no banco de dados (ignora RLS)
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // 3. Busca o perfil do usuário para obter o turma_id
+    // 4. Busca o perfil do usuário para obter o `turma_id`
     const { data: profileData, error: profileError } = await supabaseAdmin
       .from('profiles')
       .select('turma_id')
       .eq('id', user.id)
       .single();
+
     if (profileError || !profileData?.turma_id) {
-      throw new Error("Não foi possível determinar a turma do usuário.");
+      // Este erro agora sabemos que significa que não há um perfil para o usuário no DB
+      throw new Error("Não foi possível encontrar o perfil do usuário ou a turma associada.");
     }
     const turmaId = profileData.turma_id;
 
     const videoId = getYouTubeVideoId(youtubeUrl);
-    if (!videoId) throw new Error("URL do YouTube inválida.");
-
-    // (Opcional, mas recomendado: Lógica de cooldown e verificação de duplicados)
-    // Você pode descomentar esta seção se quiser reativar estas regras.
-    const { data: lastSubmission } = await supabaseAdmin
-      .from('jukebox_queue')
-      .select('created_at')
-      .eq('aluno_id', user.id)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
-
-    if (lastSubmission) {
-      const diff = Date.now() - new Date(lastSubmission.created_at).getTime();
-      const cooldownMs = 10 * 60 * 1000; // 10 minutos
-      if (diff < cooldownMs) {
-        return new Response(JSON.stringify({ error: 'Aguarde para adicionar outra música.', cooldown: cooldownMs - diff }), 
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 });
-      }
+    if (!videoId) {
+      throw new Error("A URL do YouTube fornecida é inválida.");
     }
 
-    
-    // ===================================================================
-    // PARTE RESTAURADA: BUSCA DE DADOS NO YOUTUBE
-    // ===================================================================
+    // (Opcional) Aqui você pode re-adicionar as regras de cooldown ou de música já na fila se desejar.
+
+    // 5. Busca os detalhes do vídeo na API do YouTube
     const YOUTUBE_API_KEY = Deno.env.get('YOUTUBE_API_KEY');
     if (!YOUTUBE_API_KEY) {
-      throw new Error("A chave da API do YouTube não foi configurada no servidor.");
+      throw new Error("A chave da API do YouTube não foi configurada como um 'Secret' nesta função.");
     }
 
     const youtubeResponse = await fetch(`https://www.googleapis.com/youtube/v3/videos?id=${videoId}&key=${YOUTUBE_API_KEY}&part=snippet`);
-    
     if (!youtubeResponse.ok) {
-        console.error('Erro na resposta da API do YouTube:', await youtubeResponse.text());
-        throw new Error("Não foi possível obter dados do YouTube. Verifique a chave da API.");
+      // Se a resposta não for 2xx, a chave da API provavelmente é inválida ou a API está desativada
+      throw new Error("Não foi possível obter os dados do YouTube. Verifique a chave da API.");
     }
-    
+
     const youtubeData = await youtubeResponse.json();
     const videoDetails = youtubeData.items?.[0]?.snippet;
-    
     if (!videoDetails) {
-        throw new Error("Vídeo não encontrado no YouTube com o ID fornecido.");
+      throw new Error("Vídeo não encontrado no YouTube com a URL fornecida.");
     }
-    // ===================================================================
 
-    // 4. Insere a música na fila com todos os dados corretos
+    // 6. Prepara o objeto com todos os dados corretos para inserção
     const newSong = {
       youtube_url: `https://www.youtube.com/watch?v=${videoId}`,
-      song_title: videoDetails.title, // <-- Valor correto
-      thumbnail_url: videoDetails.thumbnails?.default?.url ?? null, // <-- Valor correto
+      song_title: videoDetails.title, // <-- Título correto
+      thumbnail_url: videoDetails.thumbnails?.default?.url ?? null, // <-- Thumbnail correta
       aluno_id: user.id,
-      turma_id: turmaId,
+      turma_id: turmaId, // <-- turma_id correto
       status: 'queued'
     };
 
+    // 7. Insere a nova música na tabela `jukebox_queue`
     const { error: insertError } = await supabaseAdmin.from('jukebox_queue').insert(newSong);
     if (insertError) {
-        console.error("Erro ao inserir no Supabase: ", insertError);
-        throw insertError;
+      // Erro do banco de dados (ex: violação de política, tipo de dado errado, etc.)
+      throw new Error(`Erro ao salvar a música no banco de dados: ${insertError.message}`);
     }
 
-    // 5. Retorna sucesso
+    // 8. Retorna a resposta de sucesso para o frontend
     return new Response(JSON.stringify({
       message: "Música adicionada com sucesso!",
-      cooldown: 10 * 60 * 1000 
+      cooldown: 10 * 60 * 1000 // Cooldown de 10 minutos
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200
     });
 
   } catch (err) {
+    // Captura qualquer erro que ocorreu no bloco `try` e o envia como resposta
     const error = err as Error;
     return new Response(JSON.stringify({ error: error.message }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 400
+      status: 400 // Usar status 400 (Bad Request) para erros do cliente/lógica
     });
   }
 });
