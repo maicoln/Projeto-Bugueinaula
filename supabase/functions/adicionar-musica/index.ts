@@ -1,120 +1,185 @@
+// Ficheiro: supabase/functions/adicionar-musica/index.ts
+
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { corsHeaders } from '../_shared/cors.ts';
 
-// Interface para o corpo da requisição
 interface AddSongPayload {
   youtube_url: string;
 }
 
-// Função para extrair o ID do vídeo de uma URL do YouTube
+// Função para extrair o ID do vídeo do YouTube
 function getYouTubeVideoId(url: string): string | null {
-  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
-  const match = url.match(regExp);
-  return (match && match[2].length === 11) ? match[2] : null;
+  try {
+    const parsedUrl = new URL(url);
+    if (parsedUrl.hostname.includes("youtu.be")) {
+      return parsedUrl.pathname.slice(1);
+    }
+    return parsedUrl.searchParams.get("v");
+  } catch {
+    return null;
+  }
 }
 
 Deno.serve(async (req: Request) => {
-  // Responde a requisições OPTIONS (necessário para CORS)
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
   }
 
   try {
-    // 1. Valida a requisição
+    // 1. Valida o payload
     const payload: AddSongPayload = await req.json();
     const youtubeUrl = payload.youtube_url;
-    if (!youtubeUrl) {
-      throw new Error("A URL do YouTube é obrigatória.");
+    const videoId = getYouTubeVideoId(youtubeUrl);
+
+    if (!videoId) {
+      throw new Error("URL do YouTube inválida.");
     }
 
-    // 2. Autentica o usuário a partir do token enviado pelo frontend
-    const authHeader = req.headers.get('Authorization')!;
+    // 2. Autentica usuário
+    const authHeader = req.headers.get("Authorization")!;
     const supabaseClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
       { global: { headers: { Authorization: authHeader } } }
     );
-    const { data: { user } } = await supabaseClient.auth.getUser();
+
+    const {
+      data: { user },
+    } = await supabaseClient.auth.getUser();
+
     if (!user) {
-      throw new Error("Usuário não autenticado. Sessão inválida ou expirada.");
+      throw new Error("Usuário não autenticado.");
     }
 
-    // 3. Cria o cliente Admin para realizar operações no banco de dados (ignora RLS)
+    // 3. Cria admin client
     const supabaseAdmin = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
 
-    // 4. Busca o perfil do usuário para obter o `turma_id`
+    // 4. Busca turma_id do usuário
     const { data: profileData, error: profileError } = await supabaseAdmin
-      .from('profiles')
-      .select('turma_id')
-      .eq('id', user.id)
+      .from("profiles")
+      .select("turma_id")
+      .eq("id", user.id)
       .single();
 
     if (profileError || !profileData?.turma_id) {
-      // Este erro agora sabemos que significa que não há um perfil para o usuário no DB
-      throw new Error("Não foi possível encontrar o perfil do usuário ou a turma associada.");
+      throw new Error("Não foi possível encontrar o perfil ou a turma do usuário.");
     }
     const turmaId = profileData.turma_id;
 
-    const videoId = getYouTubeVideoId(youtubeUrl);
-    if (!videoId) {
-      throw new Error("A URL do YouTube fornecida é inválida.");
+    // 5. Regras de cooldown
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const { data: lastSubmission, error: lastSubError } = await supabaseAdmin
+      .from("jukebox_queue")
+      .select("created_at")
+      .eq("aluno_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (lastSubError && lastSubError.code !== "PGRST116") {
+      throw lastSubError;
     }
 
-    // (Opcional) Aqui você pode re-adicionar as regras de cooldown ou de música já na fila se desejar.
+    if (
+      lastSubmission &&
+      new Date(lastSubmission.created_at) > new Date(tenMinutesAgo)
+    ) {
+      return new Response(
+        JSON.stringify({
+          error: "Você só pode adicionar uma música a cada 10 minutos.",
+        }),
+        {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 429,
+        }
+      );
+    }
 
-    // 5. Busca os detalhes do vídeo na API do YouTube
-    const YOUTUBE_API_KEY = Deno.env.get('YOUTUBE_API_KEY');
+    // 6. Checa se o usuário já tem música na fila
+    const { count: queuedSongCount, error: queuedError } = await supabaseAdmin
+      .from("jukebox_queue")
+      .select("*", { count: "exact", head: true })
+      .eq("aluno_id", user.id)
+      .eq("status", "queued");
+
+    if (queuedError) throw queuedError;
+
+    if (queuedSongCount && queuedSongCount > 0) {
+      return new Response(
+        JSON.stringify({
+          error: "Você já tem uma música na fila. Espere ela tocar.",
+        }),
+        {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 409,
+        }
+      );
+    }
+
+    // 7. Chama YouTube API
+    const YOUTUBE_API_KEY = Deno.env.get("YOUTUBE_API_KEY");
     if (!YOUTUBE_API_KEY) {
-      throw new Error("A chave da API do YouTube não foi configurada como um 'Secret' nesta função.");
+      throw new Error("Chave da API do YouTube não configurada.");
     }
 
-    const youtubeResponse = await fetch(`https://www.googleapis.com/youtube/v3/videos?id=${videoId}&key=${YOUTUBE_API_KEY}&part=snippet`);
+    const youtubeResponse = await fetch(
+      `https://www.googleapis.com/youtube/v3/videos?id=${videoId}&key=${YOUTUBE_API_KEY}&part=snippet`
+    );
+
     if (!youtubeResponse.ok) {
-      // Se a resposta não for 2xx, a chave da API provavelmente é inválida ou a API está desativada
-      throw new Error("Não foi possível obter os dados do YouTube. Verifique a chave da API.");
+      console.error("YouTube API error:", await youtubeResponse.text());
+      throw new Error("Não foi possível obter os dados do YouTube.");
     }
 
     const youtubeData = await youtubeResponse.json();
+    console.log("YouTube API response:", youtubeData);
+
     const videoDetails = youtubeData.items?.[0]?.snippet;
     if (!videoDetails) {
-      throw new Error("Vídeo não encontrado no YouTube com a URL fornecida.");
+      throw new Error("Vídeo não encontrado no YouTube.");
     }
 
-    // 6. Prepara o objeto com todos os dados corretos para inserção
+    // 8. Prepara a música para salvar
     const newSong = {
       youtube_url: `https://www.youtube.com/watch?v=${videoId}`,
-      song_title: videoDetails.title, // <-- Título correto
-      thumbnail_url: videoDetails.thumbnails?.default?.url ?? null, // <-- Thumbnail correta
+      song_title: videoDetails.title,
+      thumbnail_url:
+        videoDetails.thumbnails?.high?.url ??
+        videoDetails.thumbnails?.medium?.url ??
+        videoDetails.thumbnails?.default?.url ??
+        null,
       aluno_id: user.id,
-      turma_id: turmaId, // <-- turma_id correto
-      status: 'queued'
+      turma_id: turmaId,
+      status: "queued",
     };
 
-    // 7. Insere a nova música na tabela `jukebox_queue`
-    const { error: insertError } = await supabaseAdmin.from('jukebox_queue').insert(newSong);
+    // 9. Insere na fila
+    const { error: insertError } = await supabaseAdmin
+      .from("jukebox_queue")
+      .insert(newSong);
+
     if (insertError) {
-      // Erro do banco de dados (ex: violação de política, tipo de dado errado, etc.)
-      throw new Error(`Erro ao salvar a música no banco de dados: ${insertError.message}`);
+      throw new Error(`Erro ao salvar a música: ${insertError.message}`);
     }
 
-    // 8. Retorna a resposta de sucesso para o frontend
-    return new Response(JSON.stringify({
-      message: "Música adicionada com sucesso!",
-      cooldown: 10 * 60 * 1000 // Cooldown de 10 minutos
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 200
-    });
-
+    return new Response(
+      JSON.stringify({
+        message: "Música adicionada com sucesso!",
+        cooldown: 10 * 60 * 1000, // 10 minutos
+      }),
+      {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 200,
+      }
+    );
   } catch (err) {
-    // Captura qualquer erro que ocorreu no bloco `try` e o envia como resposta
     const error = err as Error;
     return new Response(JSON.stringify({ error: error.message }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 400 // Usar status 400 (Bad Request) para erros do cliente/lógica
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 400,
     });
   }
 });
