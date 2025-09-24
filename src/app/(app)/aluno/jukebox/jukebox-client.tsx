@@ -65,12 +65,14 @@ export default function JukeboxClientPage() {
       .order('created_at', { ascending: true });
 
     if (error) throw error;
+
+    // Mapeia corretamente os profiles para manter a tipagem
     return (data ?? []).map(item => ({
       id: item.id,
       song_title: item.song_title,
       thumbnail_url: item.thumbnail_url,
       created_at: item.created_at,
-      profiles: Array.isArray(item.profiles) ? item.profiles[0] : item.profiles ?? null,
+      profiles: Array.isArray(item.profiles) ? item.profiles[0] : item.profiles ?? null
     }));
   };
 
@@ -98,12 +100,13 @@ export default function JukeboxClientPage() {
       .limit(20);
 
     if (error) throw error;
+
     return (data ?? []).map(item => ({
       id: item.id,
       song_title: item.song_title,
       thumbnail_url: item.thumbnail_url,
       created_at: item.created_at,
-      profiles: Array.isArray(item.profiles) ? item.profiles[0] : item.profiles ?? null,
+      profiles: Array.isArray(item.profiles) ? item.profiles[0] : item.profiles ?? null
     }));
   };
 
@@ -125,14 +128,11 @@ export default function JukeboxClientPage() {
     setMessage({ type: '', text: '' });
 
     try {
-      // Loga o payload antes de enviar
-      console.log("Enviando para adicionar-musica:", { youtube_url: youtubeUrl });
-
       const { data: responseData, error } = await supabase.functions.invoke<AddSongResponse>(
         'adicionar-musica',
         {
           method: 'POST',
-          body: { youtube_url: youtubeUrl }, // ✅ sem JSON.stringify
+          body: JSON.stringify({ youtube_url: youtubeUrl })
         }
       );
 
@@ -155,6 +155,7 @@ export default function JukeboxClientPage() {
         setCooldown(responseData.cooldown);
         localStorage.setItem('jukeboxCooldown', (Date.now() + responseData.cooldown).toString());
       }
+
     } catch (err) {
       if (err instanceof Error) {
         setMessage({ type: 'error', text: err.message });
@@ -166,7 +167,6 @@ export default function JukeboxClientPage() {
     }
   };
 
-  // Atualiza cooldown em tempo real
   useEffect(() => {
     if (cooldown <= 0) return;
     const interval = setInterval(() => {
@@ -224,13 +224,7 @@ export default function JukeboxClientPage() {
         <div className="flex flex-col lg:flex-row gap-8 items-center justify-center">
           <div className="relative w-full lg:w-1/2 aspect-video rounded-xl overflow-hidden shadow-2xl bg-black">
             {currentSong.thumbnail_url ? (
-              <Image
-                src={currentSong.thumbnail_url}
-                alt={currentSong.song_title ?? 'Música'}
-                fill
-                sizes="100vw"
-                className="object-cover"
-              />
+              <Image src={currentSong.thumbnail_url} alt={currentSong.song_title ?? 'Música'} fill sizes="100vw" className="object-cover" />
             ) : (
               <div className="flex items-center justify-center w-full h-full bg-gray-900 text-white">
                 <Music size={64} />

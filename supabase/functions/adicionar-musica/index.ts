@@ -1,117 +1,126 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+// Ficheiro: supabase/functions/adicionar-musica/index.ts
 
-const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-const supabaseKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
-const supabase = createClient(supabaseUrl, supabaseKey);
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { corsHeaders } from '../_shared/cors.ts';
 
-serve(async (req: Request) => {
+interface AddSongPayload {
+  youtube_url: string;
+}
+
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
   try {
-    console.log("🚀 Função adicionar-musica iniciada");
+    const payload: AddSongPayload = await req.json();
+    console.log("📥 Body recebido:", payload);
 
-    // 🔹 Pega body enviado pelo cliente
-    const body = await req.json();
-    console.log("📥 Body recebido:", body);
+    const youtubeUrl = payload.youtube_url;
+    if (!youtubeUrl) throw new Error("URL do YouTube não fornecida.");
 
-    const youtubeUrl = body.youtube_url;
-    if (!youtubeUrl) {
-      console.error("❌ Nenhum youtube_url recebido");
-      return new Response(JSON.stringify({ error: "URL inválida" }), {
-        status: 400,
-      });
+    // Extrai o videoId
+    let videoId: string | null = null;
+    try {
+      const parsedUrl = new URL(youtubeUrl);
+      if (parsedUrl.hostname.includes("youtu.be")) {
+        videoId = parsedUrl.pathname.slice(1);
+      } else {
+        videoId = parsedUrl.searchParams.get("v");
+      }
+    } catch {
+      throw new Error("URL do YouTube inválida.");
     }
+    console.log("🎬 Video ID extraído:", videoId);
+    if (!videoId) throw new Error("Não foi possível extrair o ID do vídeo.");
 
-    // 🔹 Extrair ID do YouTube
-    const videoIdMatch = youtubeUrl.match(/v=([^&]+)/);
-    const videoId = videoIdMatch ? videoIdMatch[1] : null;
-
-    if (!videoId) {
-      console.error("❌ Não foi possível extrair o ID do vídeo:", youtubeUrl);
-      return new Response(JSON.stringify({ error: "URL de YouTube inválida" }), {
-        status: 400,
-      });
-    }
-
-    // 🔹 Pega metadados do vídeo pela API pública do YouTube
-    const apiKey = Deno.env.get("YOUTUBE_API_KEY");
-    const ytRes = await fetch(
-      `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${apiKey}`
+    // Cria client autenticado
+    const authHeader = req.headers.get("Authorization")!;
+    const supabaseClient = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+      { global: { headers: { Authorization: authHeader } } }
     );
-    const ytData = await ytRes.json();
 
-    console.log("📺 Resposta da API do YouTube:", JSON.stringify(ytData, null, 2));
+    const { data: { user } } = await supabaseClient.auth.getUser();
+    if (!user) throw new Error("Usuário não autenticado.");
+    console.log("✅ Usuário autenticado. ID:", user.id);
 
-    const snippet = ytData?.items?.[0]?.snippet;
-    const songTitle = snippet?.title ?? "Título não encontrado";
-    const thumbnailUrl = snippet?.thumbnails?.high?.url ?? null;
+    // Admin client
+    const supabaseAdmin = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+    );
 
-    console.log("🎵 Dados extraídos:", {
-      titulo: songTitle,
-      thumbnail: thumbnailUrl,
-    });
-
-    // 🔹 Pega usuário autenticado
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser(req);
-
-    if (userError || !user) {
-      console.error("❌ Usuário não autenticado:", userError);
-      return new Response(JSON.stringify({ error: "Usuário não autenticado" }), {
-        status: 401,
-      });
-    }
-
-    console.log("✅ Usuário autenticado:", user.id);
-
-    // 🔹 Busca turma_id do perfil
-    const { data: profile, error: profileError } = await supabase
+    // Busca turma_id
+    const { data: profileData, error: profileError } = await supabaseAdmin
       .from("profiles")
       .select("turma_id")
       .eq("id", user.id)
       .single();
 
-    if (profileError || !profile?.turma_id) {
-      console.error("❌ Erro ao buscar turma_id:", profileError);
-      return new Response(JSON.stringify({ error: "Turma não encontrada" }), {
-        status: 400,
-      });
+    console.log("DEBUG: Resultado da busca de perfil:", { profileData, profileError });
+    if (profileError || !profileData?.turma_id) {
+      throw new Error("Não foi possível encontrar a turma do usuário.");
+    }
+    const turmaId = profileData.turma_id;
+    console.log("✅ turma_id encontrado:", turmaId);
+
+    // Chama YouTube API
+    const YOUTUBE_API_KEY = Deno.env.get("YOUTUBE_API_KEY");
+    if (!YOUTUBE_API_KEY) throw new Error("Chave da API do YouTube não configurada.");
+
+    const youtubeApiUrl = `https://www.googleapis.com/youtube/v3/videos?id=${videoId}&key=${YOUTUBE_API_KEY}&part=snippet`;
+    console.log("📡 Chamando YouTube API:", youtubeApiUrl);
+
+    const youtubeResponse = await fetch(youtubeApiUrl);
+    const youtubeText = await youtubeResponse.text();
+    console.log("📺 Resposta da API do YouTube:", youtubeText);
+
+    if (!youtubeResponse.ok) {
+      throw new Error("Falha na chamada à API do YouTube.");
     }
 
-    console.log("📚 Turma encontrada:", profile.turma_id);
+    const youtubeData = JSON.parse(youtubeText);
+    const videoDetails = youtubeData.items?.[0]?.snippet;
 
-    // 🔹 Insere música na fila
-    const { data: insertData, error: insertError } = await supabase
+    if (!videoDetails) {
+      throw new Error("Vídeo não encontrado ou não retornou dados da API do YouTube.");
+    }
+
+    console.log("🎵 Dados do vídeo extraídos:", videoDetails);
+
+    const newSong = {
+      youtube_url: `https://www.youtube.com/watch?v=${videoId}`,
+      song_title: videoDetails.title ?? "Título não disponível",
+      thumbnail_url: videoDetails.thumbnails?.high?.url
+        ?? videoDetails.thumbnails?.medium?.url
+        ?? videoDetails.thumbnails?.default?.url
+        ?? null,
+      aluno_id: user.id,
+      turma_id: turmaId,
+      status: "queued",
+    };
+
+    console.log("💾 Música a ser salva no Supabase:", newSong);
+
+    const { error: insertError } = await supabaseAdmin
       .from("jukebox_queue")
-      .insert([
-        {
-          song_title: songTitle,
-          thumbnail_url: thumbnailUrl,
-          status: "queued",
-          user_id: user.id,
-          turma_id: profile.turma_id,
-        },
-      ])
-      .select();
+      .insert(newSong);
 
-    if (insertError) {
-      console.error("❌ Erro ao salvar no banco:", insertError);
-      return new Response(JSON.stringify({ error: "Erro ao salvar música" }), {
-        status: 500,
-      });
-    }
+    if (insertError) throw new Error(`Erro ao salvar a música: ${insertError.message}`);
 
-    console.log("✅ Música salva com sucesso:", insertData);
+    return new Response(JSON.stringify({ message: "Música adicionada com sucesso!", debug_turma_id: turmaId }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 200,
+    });
 
-    return new Response(
-      JSON.stringify({ message: "Música adicionada com sucesso!" }),
-      { status: 200 }
-    );
   } catch (err) {
-    console.error("💥 Erro inesperado:", err);
-    return new Response(JSON.stringify({ error: "Erro interno no servidor" }), {
-      status: 500,
+    console.error("❌ Erro na função adicionar-musica:", err);
+    const error = err as Error;
+    return new Response(JSON.stringify({ error: error.message }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 400,
     });
   }
 });
