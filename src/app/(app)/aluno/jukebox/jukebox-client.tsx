@@ -41,7 +41,7 @@ export default function JukeboxClientPage() {
     }
   }, []);
 
-  // Fetchers
+  // Fetch fila
   const fetchQueue = async (): Promise<JukeboxQueueItem[]> => {
     const { data: userData } = await supabase.auth.getUser();
     const userId = userData?.user?.id;
@@ -54,7 +54,6 @@ export default function JukeboxClientPage() {
       .single();
 
     if (!profileData?.turma_id) return [];
-
     const turmaId = profileData.turma_id;
 
     const { data, error } = await supabase
@@ -70,10 +69,11 @@ export default function JukeboxClientPage() {
       song_title: item.song_title,
       thumbnail_url: item.thumbnail_url,
       created_at: item.created_at,
-      profiles: Array.isArray(item.profiles) ? item.profiles[0] : item.profiles
+      profiles: Array.isArray(item.profiles) ? item.profiles[0] : item.profiles ?? null,
     }));
   };
 
+  // Fetch histórico
   const fetchHistory = async (): Promise<JukeboxQueueItem[]> => {
     const { data: userData } = await supabase.auth.getUser();
     const userId = userData?.user?.id;
@@ -86,7 +86,6 @@ export default function JukeboxClientPage() {
       .single();
 
     if (!profileData?.turma_id) return [];
-
     const turmaId = profileData.turma_id;
 
     const { data, error } = await supabase
@@ -103,7 +102,7 @@ export default function JukeboxClientPage() {
       song_title: item.song_title,
       thumbnail_url: item.thumbnail_url,
       created_at: item.created_at,
-      profiles: Array.isArray(item.profiles) ? item.profiles[0] : item.profiles
+      profiles: Array.isArray(item.profiles) ? item.profiles[0] : item.profiles ?? null,
     }));
   };
 
@@ -128,38 +127,28 @@ export default function JukeboxClientPage() {
       const { data: responseData, error } = await supabase.functions.invoke<AddSongResponse>(
         'adicionar-musica',
         {
-          method: 'POST',
-          body: JSON.stringify({ youtube_url: youtubeUrl })
+          body: { youtube_url: youtubeUrl }, // ✅ sem JSON.stringify
         }
       );
 
       if (error) throw error;
-
       if (!responseData) {
         setMessage({ type: 'error', text: 'Resposta inválida do servidor.' });
         return;
       }
-      
-      // ===================================================================
-      // LÓGICA CORRIGIDA
-      // ===================================================================
-      
-      // 1. Defina a mensagem (erro ou sucesso)
+
       if (responseData.error) {
         setMessage({ type: 'error', text: responseData.error });
       } else if (responseData.message) {
         setMessage({ type: 'success', text: responseData.message });
-        setYoutubeUrl(''); // Limpa o campo apenas em caso de sucesso
-        mutateQueue();    // Atualiza a fila
+        setYoutubeUrl('');
+        mutateQueue();
       }
 
-      // 2. SEMPRE verifique se há um cooldown e aplique-o
       if (typeof responseData.cooldown === 'number' && responseData.cooldown > 0) {
         setCooldown(responseData.cooldown);
         localStorage.setItem('jukeboxCooldown', (Date.now() + responseData.cooldown).toString());
       }
-      // ===================================================================
-
     } catch (err) {
       if (err instanceof Error) {
         setMessage({ type: 'error', text: err.message });
@@ -171,7 +160,7 @@ export default function JukeboxClientPage() {
     }
   };
 
-  // Atualiza cooldown em tempo real
+  // Atualiza cooldown
   useEffect(() => {
     if (cooldown <= 0) return;
     const interval = setInterval(() => {
@@ -197,6 +186,7 @@ export default function JukeboxClientPage() {
         <p className="text-gray-500 dark:text-gray-400">Adicione uma música do YouTube à fila para tocar para todos!</p>
       </div>
 
+      {/* Formulário */}
       <form onSubmit={handleSubmitSong} className="max-w-2xl mx-auto rounded-lg border bg-white p-6 shadow-md dark:border-gray-700 dark:bg-gray-800 flex flex-col sm:flex-row gap-3">
         <div className="relative flex-grow">
           <Youtube className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400 pointer-events-none" />
@@ -225,6 +215,7 @@ export default function JukeboxClientPage() {
         </p>
       )}
 
+      {/* Música atual */}
       {currentSong && (
         <div className="flex flex-col lg:flex-row gap-8 items-center justify-center">
           <div className="relative w-full lg:w-1/2 aspect-video rounded-xl overflow-hidden shadow-2xl bg-black">
@@ -250,6 +241,7 @@ export default function JukeboxClientPage() {
         </div>
       )}
 
+      {/* Próximas músicas + histórico */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="space-y-4">
           <h3 className="text-xl font-bold">Próximas músicas</h3>
@@ -300,7 +292,7 @@ export default function JukeboxClientPage() {
                 ))}
               </ul>
             ) : (
-              <p className="text-gray-500">Nenhuma música tocada ainda.</p>
+              <p className="text-gray-500">Nenhuma música foi tocada ainda.</p>
             )}
           </div>
         </div>

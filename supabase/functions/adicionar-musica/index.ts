@@ -28,6 +28,8 @@ Deno.serve(async (req: Request) => {
   try {
     // 1. Valida o payload
     const payload: AddSongPayload = await req.json();
+    console.log("Payload recebido:", payload);
+
     const youtubeUrl = payload.youtube_url;
     const videoId = getYouTubeVideoId(youtubeUrl);
 
