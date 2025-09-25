@@ -18,10 +18,8 @@ export default function ResetSenhaPage() {
     setError('');
     setLoading(true);
 
-    const redirectUrl = `${process.env.NEXT_PUBLIC_SITE_URL}/update-password`;
-
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: redirectUrl,
+      redirectTo: `${window.location.origin}/update-password`,
     });
 
     if (error) {
@@ -29,7 +27,6 @@ export default function ResetSenhaPage() {
     } else {
       setMessage('Link de redefinição de senha enviado! Verifique seu e-mail.');
     }
-
     setLoading(false);
   };
 

@@ -16,30 +16,14 @@ export default function UpdatePasswordPage() {
   const router = useRouter();
 
   useEffect(() => {
-    // Checar sessão ao carregar a página
-    const checkSession = async () => {
-      const { data } = await supabase.auth.getSession();
-
-      if (!data.session) {
-        // Se não houver sessão, significa que o link não é válido ou expirou
-        setError('Link inválido ou sessão expirada. Solicite um novo link de redefinição.');
-        setTimeout(() => router.push('/login'), 4000);
-      } else {
-        setMessage('Sessão de recuperação de senha iniciada. Crie uma nova senha.');
-      }
-    };
-
-    checkSession();
-
-    // Listener para eventos de autenticação
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'PASSWORD_RECOVERY') {
-        setMessage('Sessão de recuperação de senha iniciada. Crie uma nova senha.');
+        setMessage('Sessão de recuperação de senha iniciada. Por favor, crie uma nova senha.');
       }
     });
 
     return () => subscription.unsubscribe();
-  }, [router]);
+  }, []);
 
   const handleUpdatePassword = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -56,7 +40,7 @@ export default function UpdatePasswordPage() {
     if (error) {
       setError(`Erro ao atualizar a senha: ${error.message}`);
     } else {
-      setMessage('Senha atualizada com sucesso! Redirecionando para o login...');
+      setMessage('Senha atualizada com sucesso! A redirecionar para o login...');
       setTimeout(() => router.push('/login'), 3000);
     }
     setLoading(false);

@@ -1,4 +1,3 @@
-// src/app/(app)/professor/jukebox/jukebox-client.tsx
 'use client';
 
 import { useState, useEffect } from 'react';

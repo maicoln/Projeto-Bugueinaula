@@ -1,3 +1,4 @@
+// Ficheiro: src/app/(app)/disciplinas/[disciplinaId]/disciplina-client.tsx (VERSÃO FINAL SEM 'ANY')
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
@@ -18,11 +19,12 @@ export type BimestreData = {
 };
 type DadosDosBimestres = Record<number, BimestreData>;
 
+// <<< NOVO: Tipo manual para o resultado da query para evitar 'any' >>>
 type ConteudosQueryResult = {
   id: number;
   bimestre: number;
   semana: number;
-  tipo: 'MATERIAL_AULA' | 'EXEMPLO' | 'EXERCICIO' | 'REGISTRO'; // Incluído REGISTRO para ser completo
+  tipo: 'MATERIAL_AULA' | 'EXEMPLO' | 'EXERCICIO';
   titulo: string;
   atividades_submissoes: {
     id: number;
@@ -51,6 +53,7 @@ export default function DisciplinaClientPage({ disciplinaId }: DisciplinaClientP
       return;
     }
 
+    // 1. Buscar o nome da disciplina
     const { data: disciplina } = await supabase.from('disciplinas').select('nome').eq('id', id).single();
     if (disciplina) {
       setNomeDisciplina(disciplina.nome);
@@ -59,13 +62,13 @@ export default function DisciplinaClientPage({ disciplinaId }: DisciplinaClientP
       return;
     }
 
+    // 2. Buscar todos os conteúdos e submissões
     const { data: conteudosData, error } = await supabase
       .from('conteudos')
       .select(`id, bimestre, semana, tipo, titulo, atividades_submissoes!left(id)`)
       .eq('disciplina_id', id)
       .eq('atividades_submissoes.aluno_id', user.id)
-      // <<< 1. CORREÇÃO: Ordenar por ID para garantir a ordem de criação >>>
-      .order('id', { ascending: true });
+      .order('tipo', { ascending: true });
 
     if (error) {
       console.error("Erro ao buscar conteúdos:", error);
@@ -73,8 +76,10 @@ export default function DisciplinaClientPage({ disciplinaId }: DisciplinaClientP
       return;
     }
     
+    // <<< CORREÇÃO: Usar o tipo específico em vez de 'any' >>>
     const conteudosComSubmissoes = conteudosData as ConteudosQueryResult[] | null;
 
+    // 3. Processar e agrupar os dados
     const bimestres: Record<number, BimestreData> = { 1: { semanas: {} }, 2: { semanas: {} }, 3: { semanas: {} }, 4: { semanas: {} } };
     if (conteudosComSubmissoes) {
       for (const conteudo of conteudosComSubmissoes) {
@@ -86,9 +91,7 @@ export default function DisciplinaClientPage({ disciplinaId }: DisciplinaClientP
           bimestres[bimestre].semanas[semana] = { semana, titulo: '', totalExercicios: 0, concluidos: 0 };
         }
 
-        // <<< 2. CORREÇÃO: Atribui o título apenas se ele ainda não foi definido >>>
-        // Como os conteúdos estão ordenados por ID, o primeiro a ser processado definirá o título.
-        if (bimestres[bimestre].semanas[semana].titulo === '') {
+        if (!bimestres[bimestre].semanas[semana].titulo || tipo === 'MATERIAL_AULA') {
           bimestres[bimestre].semanas[semana].titulo = titulo;
         }
 
