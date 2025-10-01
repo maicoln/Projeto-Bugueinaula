@@ -18,7 +18,10 @@ export default function ResetSenhaPage() {
     setError('');
     setLoading(true);
 
-    const redirectUrl = `${process.env.NEXT_PUBLIC_SITE_URL}/update-password`;
+    // [TESTE] A URL de redirecionamento está fixa para isolar o problema.
+    // A linha original que usava a variável de ambiente foi comentada.
+    // const redirectUrl = `${process.env.NEXT_PUBLIC_SITE_URL}/update-password`;
+    const redirectUrl = 'https://bugueinaula.vercel.app/update-password';
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: redirectUrl,
