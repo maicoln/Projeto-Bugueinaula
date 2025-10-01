@@ -1,13 +1,26 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { BrainCircuit, Lock, ArrowLeft, Loader2 } from 'lucide-react';
+import { BrainCircuit, Lock, ArrowLeft, Loader2, AlertTriangle } from 'lucide-react';
 import { motion, Variants } from 'framer-motion';
 
-export default function UpdatePasswordPage() {
+// Usamos um Wrapper com Suspense para carregar os parâmetros da URL de forma segura
+export default function UpdatePasswordPageWrapper() {
+  return (
+    <Suspense fallback={
+      <div className="flex min-h-screen w-full items-center justify-center bg-gray-100 dark:bg-gray-900">
+        <Loader2 className="h-12 w-12 animate-spin text-blue-600" />
+      </div>
+    }>
+      <UpdatePasswordPage />
+    </Suspense>
+  );
+}
+
+function UpdatePasswordPage() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [message, setMessage] = useState('');
@@ -15,35 +28,40 @@ export default function UpdatePasswordPage() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
-  // Estados para controlar a validação do link
-  const [isVerifying, setIsVerifying] = useState(true);
-  const [isValidLink, setIsValidLink] = useState(false);
+  const searchParams = useSearchParams();
+  const [isValidatingToken, setIsValidatingToken] = useState(true);
+  const [isTokenValid, setIsTokenValid] = useState(false);
 
   useEffect(() => {
-    // [REMOVIDO] A verificação manual com getSession() foi removida.
-    
-    // Listener para eventos de autenticação é a forma correta
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'PASSWORD_RECOVERY') {
-        // O link é válido, podemos mostrar o formulário
-        setIsValidLink(true);
-        setMessage('Sessão de recuperação iniciada. Crie uma nova senha.');
-      }
-      // Paramos a verificação assim que um evento ocorre
-      setIsVerifying(false);
-    });
+    const accessToken = searchParams.get('access_token');
+    const refreshToken = searchParams.get('refresh_token');
+    const errorParam = searchParams.get('error');
 
-    // Adiciona um timeout como segurança. Se o evento não for disparado
-    // em 2 segundos, assumimos que o link é inválido.
-    const timer = setTimeout(() => {
-      setIsVerifying(false);
-    }, 2000);
+    if (errorParam) {
+      setError('Ocorreu um erro. O link pode ser inválido ou ter expirado.');
+      setIsValidatingToken(false);
+      return;
+    }
 
-    return () => {
-      subscription?.unsubscribe();
-      clearTimeout(timer);
-    };
-  }, []);
+    if (accessToken && refreshToken) {
+      supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      }).then(({ error }) => {
+        if (error) {
+          setError('Sessão inválida. Por favor, solicite um novo link.');
+          setIsTokenValid(false);
+        } else {
+          setIsTokenValid(true);
+          setMessage('Sessão de recuperação válida. Crie uma nova senha.');
+        }
+        setIsValidatingToken(false);
+      });
+    } else {
+      setError('Link inválido ou expirado. Por favor, solicite um novo link.');
+      setIsValidatingToken(false);
+    }
+  }, [searchParams]);
 
   const handleUpdatePassword = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -60,162 +78,69 @@ export default function UpdatePasswordPage() {
     if (error) {
       setError(`Erro ao atualizar a senha: ${error.message}`);
     } else {
-      setMessage('Senha atualizada com sucesso! A redirecionar para o login...');
+      setMessage('Senha atualizada com sucesso! Redirecionando para o login...');
       setTimeout(() => router.push('/login'), 3000);
     }
     setLoading(false);
   };
 
-  const containerVariants: Variants = {
-    hidden: { opacity: 0 },
-    visible: { opacity: 1, transition: { staggerChildren: 0.15 } },
-  };
+  const containerVariants: Variants = { hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.15 } } };
+  const itemVariants: Variants = { hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0, transition: { type: 'spring' as const, stiffness: 60 } } };
 
-  const itemVariants: Variants = {
-    hidden: { opacity: 0, y: 20 },
-    visible: { opacity: 1, y: 0, transition: { type: 'spring' as const, stiffness: 60 } },
-  };
-
-  // Enquanto verifica o link, mostra um loader
-  if (isVerifying) {
+  if (isValidatingToken) {
     return (
       <div className="flex min-h-screen w-full items-center justify-center bg-gray-100 dark:bg-gray-900">
         <Loader2 className="h-12 w-12 animate-spin text-blue-600" />
-        <p className="ml-4 text-lg">A verificar o link...</p>
+        <p className="ml-4 text-lg">A validar o link...</p>
       </div>
     );
   }
 
-  // Se o link for inválido após a verificação
-  if (!isValidLink) {
-    return (
-      <div className="flex min-h-screen w-full items-center justify-center bg-gray-100 dark:bg-gray-900">
-         <motion.div
-           initial={{ opacity: 0, scale: 0.9 }}
-           animate={{ opacity: 1, scale: 1 }}
-           className="w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-xl dark:bg-gray-800"
-         >
-          <h2 className="text-2xl font-bold text-red-500">Link Inválido ou Expirado</h2>
-          <p className="mt-4 text-gray-700 dark:text-gray-300">Por favor, solicite um novo link de redefinição de senha.</p>
+  if (!isTokenValid) {
+     return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50">
+        <div className="text-center p-8 bg-white rounded-lg shadow-md">
+          <AlertTriangle className="mx-auto h-12 w-12 text-red-500" />
+          <h1 className="mt-4 text-xl font-bold text-gray-800">Link Inválido ou Sessão Expirada</h1>
+          <p className="mt-2 text-gray-600">{error}</p>
           <Link href="/login" className="mt-6 inline-block text-blue-600 hover:underline">
             Voltar para o Login
           </Link>
-        </motion.div>
+        </div>
       </div>
     );
   }
 
-  // Se o link for válido, mostra o formulário
   return (
     <div className="flex min-h-screen w-full flex-wrap">
-      {/* Lado Esquerdo: Branding */}
-      <motion.div
-        initial={{ opacity: 0, x: -50 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ duration: 0.8, ease: 'easeOut' }}
-        className="flex w-full flex-col items-center justify-center bg-gradient-to-br from-blue-800 via-blue-600 to-blue-400 p-8 text-white md:w-1/2"
-      >
+      <motion.div initial={{ opacity: 0, x: -50 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.8, ease: 'easeOut' }} className="flex w-full flex-col items-center justify-center bg-gradient-to-br from-blue-800 via-blue-600 to-blue-400 p-8 text-white md:w-1/2">
         <div className="text-center">
           <BrainCircuit size={64} className="mx-auto mb-4 text-white drop-shadow-lg" />
           <h1 className="text-4xl font-bold drop-shadow">Bugueinaula</h1>
           <p className="mt-2 text-lg text-blue-100">Crie uma nova senha de acesso.</p>
         </div>
       </motion.div>
-
-      {/* Lado Direito: Formulário */}
       <div className="flex w-full flex-col items-center justify-center bg-gray-100 p-8 dark:bg-gray-900 md:w-1/2">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.6, ease: 'easeOut' }}
-          className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800"
-        >
-          <motion.h2
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, ease: 'easeOut' }}
-            className="mb-6 text-center text-3xl font-bold text-gray-900 dark:text-white"
-          >
-            Criar Nova Senha
-          </motion.h2>
-
-          <motion.form
-            onSubmit={handleUpdatePassword}
-            variants={containerVariants}
-            initial="hidden"
-            animate="visible"
-            className="space-y-4"
-          >
+        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.6, ease: 'easeOut' }} className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
+          <motion.h2 initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: 'easeOut' }} className="mb-6 text-center text-3xl font-bold text-gray-900 dark:text-white">Criar Nova Senha</motion.h2>
+          <motion.form onSubmit={handleUpdatePassword} variants={containerVariants} initial="hidden" animate="visible" className="space-y-4">
             <motion.div className="relative" variants={itemVariants}>
               <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                placeholder="Nova Senha"
-                className="w-full rounded-lg border border-gray-300 bg-white p-3 pl-10 text-gray-900 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-              />
+              <input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="Nova Senha" className="w-full rounded-lg border border-gray-300 bg-white p-3 pl-10 text-gray-900 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white" />
             </motion.div>
-
             <motion.div className="relative" variants={itemVariants}>
               <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-              <input
-                id="confirmPassword"
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                required
-                placeholder="Confirme a Nova Senha"
-                className="w-full rounded-lg border border-gray-300 bg-white p-3 pl-10 text-gray-900 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-              />
+              <input id="confirmPassword" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required placeholder="Confirme a Nova Senha" className="w-full rounded-lg border border-gray-300 bg-white p-3 pl-10 text-gray-900 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white" />
             </motion.div>
-
-            <motion.button
-              type="submit"
-              disabled={loading}
-              variants={itemVariants}
-              whileHover={{ scale: 1.05, boxShadow: '0px 0px 12px rgba(59,130,246,0.6)' }}
-              whileTap={{ scale: 0.95 }}
-              className="w-full rounded-lg bg-gradient-to-r from-blue-600 to-blue-700 p-3 text-white font-semibold shadow-md transition disabled:opacity-50"
-            >
+            <motion.button type="submit" disabled={loading} variants={itemVariants} whileHover={{ scale: 1.05, boxShadow: '0px 0px 12px rgba(59,130,246,0.6)' }} whileTap={{ scale: 0.95 }} className="w-full rounded-lg bg-gradient-to-r from-blue-600 to-blue-700 p-3 text-white font-semibold shadow-md transition disabled:opacity-50">
               {loading ? 'A atualizar...' : 'Atualizar Senha'}
             </motion.button>
           </motion.form>
-
-          {message && (
-            <motion.p
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="mt-4 text-center text-sm text-green-500"
-            >
-              {message}
-            </motion.p>
-          )}
-
-          {error && (
-            <motion.p
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="mt-4 text-center text-sm text-red-500"
-            >
-              {error}
-            </motion.p>
-          )}
-
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.4, duration: 0.5 }}
-            className="mt-6 text-center"
-          >
-            <Link
-              href="/login"
-              className="flex items-center justify-center gap-2 text-sm font-semibold text-blue-600 hover:underline dark:text-blue-400"
-            >
-              <ArrowLeft size={16} />
-              Voltar para o Login
+          {message && (<motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-4 text-center text-sm text-green-500">{message}</motion.p>)}
+          {error && (<motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-4 text-center text-sm text-red-500">{error}</motion.p>)}
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4, duration: 0.5 }} className="mt-6 text-center">
+            <Link href="/login" className="flex items-center justify-center gap-2 text-sm font-semibold text-blue-600 hover:underline dark:text-blue-400">
+              <ArrowLeft size={16} /> Voltar para o Login
             </Link>
           </motion.div>
         </motion.div>
