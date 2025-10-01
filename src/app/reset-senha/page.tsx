@@ -33,7 +33,6 @@ export default function ResetSenhaPage() {
     setLoading(false);
   };
 
-  // O resto do seu componente continua aqui, sem alterações...
   const containerVariants: Variants = { hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.15 } } };
   const itemVariants: Variants = { hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0, transition: { type: 'spring' as const, stiffness: 60 } } };
   return (
