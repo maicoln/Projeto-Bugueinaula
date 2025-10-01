@@ -1,123 +1,330 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
-import { Book, CheckSquare, Users, FileText, ArrowRight, Loader2 } from 'lucide-react';
+import { Book, CheckSquare, Users, FileText, ArrowRight, Loader2, Award, TrendingUp } from 'lucide-react';
 import Link from 'next/link';
+import useSWR from 'swr';
 
-// Tipos básicos
+// --- TIPOS ---
 type DisciplinaInfo = { id: number; nome: string };
+type TurmaInfo = { id: number; nome: string };
+
+type StatsAluno = { pendentes: number; avaliadas: number; media: number | null };
+
+type AtividadeAluno = {
+  id: number;
+  titulo: string;
+  semana: number;
+  disciplinas: DisciplinaInfo | null;
+  atividades_submissoes: { id: number; nota: number | null }[];
+};
+
+type Stats = { totalAlunos: number; totalConteudos: number; totalSubmissoesPendentes: number };
 
 type SubmissaoPendente = {
   id: number;
+  created_at: string;
   titulo_conteudo: string | null;
   nome_aluno: string | null;
   nome_disciplina: string | null;
-  id_disciplina: number | null;
-  id_conteudo: number | null;
-  created_at: string;
 };
 
-type Stats = {
-  totalAlunos: number;
-  totalConteudos: number;
-  totalSubmissoesPendentes: number;
+// Helpers para valores que podem vir como array ou objeto do Supabase
+type MaybeArray<T> = T | T[] | null;
+const first = <T,>(v: MaybeArray<T>): T | null => (Array.isArray(v) ? v[0] ?? null : v ?? null);
+
+// Tipos raw vindos do Supabase (mais permissivos) e mapeados para tipos fortes
+type RawConteudoAluno = {
+  id: number;
+  titulo: string;
+  semana: number;
+  disciplinas: MaybeArray<DisciplinaInfo>;
+  atividades_submissoes: { id: number; nota: number | null }[];
 };
 
-// Tipos para payloads flexíveis (pode vir como array, objeto ou null)
-type ProfilePayload = { nome?: string | null };
-type ProfilesPayload = ProfilePayload[] | ProfilePayload | null;
-
-type DisciplinaPayload = { nome?: string | null };
-type DisciplinaPayloads = DisciplinaPayload[] | DisciplinaPayload | null;
-
-type ConteudoPayload = {
-  id?: number | null;
-  titulo?: string | null;
-  disciplina_id?: number | null;
-  disciplinas?: DisciplinaPayloads;
-};
-type ConteudosPayload = ConteudoPayload[] | ConteudoPayload | null;
-
-type PendentesQueryResult = {
+type SubmissaoPendenteProfQuery = {
   id: number;
   created_at: string;
-  conteudos: ConteudosPayload;
-  profiles: ProfilesPayload;
+  conteudos: MaybeArray<{ titulo: string | null; disciplinas: MaybeArray<{ nome: string | null }> }>;
+  profiles: MaybeArray<{ nome: string | null }>;
 };
 
-// Helpers robustos (aceitam array | objeto | null)
-function getUserNome(profiles: ProfilesPayload): string {
-  if (!profiles) return 'Aluno desconhecido';
-  if (Array.isArray(profiles)) return profiles[0]?.nome ?? 'Aluno desconhecido';
-  return (profiles as ProfilePayload).nome ?? 'Aluno desconhecido';
-}
+// [CORRIGIDO] O tipo foi ajustado para refletir que 'disciplinas' é um objeto, não um array.
+type TurmaJoin = {
+  disciplinas: { disciplinas_turmas: { turmas: TurmaInfo | null }[] } | null;
+};
 
-function getConteudoTitulo(conteudos: ConteudosPayload): string {
-  if (!conteudos) return 'Conteúdo desconhecido';
-  if (Array.isArray(conteudos)) return conteudos[0]?.titulo ?? 'Conteúdo desconhecido';
-  return (conteudos as ConteudoPayload).titulo ?? 'Conteúdo desconhecido';
-}
+type DisciplinaTurmaRow = { disciplinas: DisciplinaInfo[] };
+type ProfessorDisciplinaRow = { disciplinas: DisciplinaInfo[] };
 
-function getDisciplinaNomeFromConteudo(conteudos: ConteudosPayload): string | null {
-  if (!conteudos) return null;
-  const firstConteudo: ConteudoPayload | undefined = Array.isArray(conteudos) ? conteudos[0] : (conteudos as ConteudoPayload | null) ?? undefined;
-  const disciplinas = firstConteudo?.disciplinas ?? null;
-  if (!disciplinas) return null;
-  if (Array.isArray(disciplinas)) return disciplinas[0]?.nome ?? null;
-  return (disciplinas as DisciplinaPayload).nome ?? null;
-}
+// --- COMPONENTE GLOBAL ---
+const StatCard = ({ icon, title, value }: { icon: React.ReactNode; title: string; value: number | string }) => (
+  <div className="rounded-xl border bg-white p-6 shadow-sm transition hover:shadow-md dark:border-gray-700 dark:bg-gray-800">
+    <div className="flex items-center gap-4">
+      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-100 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400">
+        {icon}
+      </div>
+      <div>
+        <p className="text-sm text-gray-500 dark:text-gray-400">{title}</p>
+        <p className="text-3xl font-bold text-gray-900 dark:text-white">{value}</p>
+      </div>
+    </div>
+  </div>
+);
 
-export default function DashboardClientPage() {
-  const router = useRouter();
-  const [loading, setLoading] = useState(true);
+// --- DASHBOARD ALUNO ---
+function AlunoDashboard() {
+  const [stats, setStats] = useState<StatsAluno>({ pendentes: 0, avaliadas: 0, media: null });
+  const [atividadesPendentes, setAtividadesPendentes] = useState<AtividadeAluno[]>([]);
   const [disciplinas, setDisciplinas] = useState<DisciplinaInfo[]>([]);
-  const [submissoesPendentes, setSubmissoesPendentes] = useState<SubmissaoPendente[]>([]);
-  const [stats, setStats] = useState<Stats>({
-    totalAlunos: 0,
-    totalConteudos: 0,
-    totalSubmissoesPendentes: 0,
-  });
+  const [userId, setUserId] = useState<string | null>(null);
 
-  const fetchDashboardData = useCallback(async () => {
-    try {
+  useEffect(() => {
+    (async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        router.push('/login');
-        return;
-      }
+      if (user) setUserId(user.id);
+    })();
+  }, []);
 
-      const { data: profile } = await supabase.from('profiles').select('tipo_usuario').eq('id', user.id).single();
-      if (profile?.tipo_usuario === 'ALUNO') {
-        router.push('/aluno/atividades');
-        return;
-      }
-      if (profile?.tipo_usuario !== 'PROFESSOR') {
-        setLoading(false);
-        return;
-      }
+  const { isLoading } = useSWR(
+    () => (userId ? `aluno-dashboard-${userId}` : null),
+    async () => {
+      if (!userId) return null;
 
-      // 1) Disciplinas do professor
+      // Perfil
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('turma_id')
+        .eq('id', userId)
+        .single();
+
+      if (!profile?.turma_id) return null;
+
+      // Disciplinas do aluno (cada linha pode retornar várias disciplinas)
       const { data: disciplinasData } = await supabase
+        .from('disciplinas_turmas')
+        .select('disciplinas:disciplinas(id, nome)')
+        .eq('turma_id', profile.turma_id);
+
+      const rows = (disciplinasData ?? []) as DisciplinaTurmaRow[];
+      const alunoDisciplinas = rows.flatMap((d) => d.disciplinas);
+
+      setDisciplinas(alunoDisciplinas);
+      const disciplinaIds = alunoDisciplinas.map((d) => d.id);
+      if (disciplinaIds.length === 0) {
+        setAtividadesPendentes([]);
+        setStats({ pendentes: 0, avaliadas: 0, media: null });
+        return true;
+      }
+
+      // Conteúdos de exercícios com submissões do aluno
+      const { data: conteudos } = await supabase
+        .from('conteudos')
+        .select(
+          'id, titulo, semana, disciplinas:disciplinas(id, nome), atividades_submissoes!left(id, nota)'
+        )
+        .in('disciplina_id', disciplinaIds)
+        .eq('tipo', 'EXERCICIO')
+        .eq('atividades_submissoes.aluno_id', userId);
+
+      const conteudosRaw = (conteudos ?? []) as unknown as RawConteudoAluno[];
+
+      const conteudosTipados: AtividadeAluno[] = conteudosRaw.map((c) => ({
+        id: c.id,
+        titulo: c.titulo,
+        semana: c.semana,
+        disciplinas: first(c.disciplinas),
+        atividades_submissoes: c.atividades_submissoes,
+      }));
+
+      const pendentes = conteudosTipados.filter((c) => c.atividades_submissoes.length === 0);
+      const avaliadas = conteudosTipados.filter(
+        (c) => c.atividades_submissoes.length > 0 && c.atividades_submissoes[0].nota !== null
+      );
+      const somaNotas = avaliadas.reduce((acc, c) => acc + (c.atividades_submissoes[0].nota ?? 0), 0);
+
+      setAtividadesPendentes(pendentes.slice(0, 5));
+      setStats({
+        pendentes: pendentes.length,
+        avaliadas: avaliadas.length,
+        media: avaliadas.length > 0 ? somaNotas / avaliadas.length : null,
+      });
+
+      return true;
+    },
+    { refreshInterval: 5000, revalidateOnFocus: true, revalidateOnReconnect: true }
+  );
+
+  if (isLoading)
+    return (
+      <div className="flex h-64 items-center justify-center text-gray-500">
+        <Loader2 className="mr-2 h-6 w-6 animate-spin" /> A carregar o seu painel...
+      </div>
+    );
+
+  return (
+    <div className="animate-fade-in p-6">
+      <h1 className="mb-8 text-3xl font-bold tracking-tight">Painel do Aluno</h1>
+
+      <div className="mb-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        <StatCard icon={<CheckSquare size={24} />} title="Atividades Pendentes" value={stats.pendentes} />
+        <StatCard icon={<Award size={24} />} title="Atividades Avaliadas" value={stats.avaliadas} />
+        <StatCard
+          icon={<TrendingUp size={24} />}
+          title="Média Geral"
+          value={stats.media?.toFixed(1).replace('.', ',') ?? 'N/A'}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <h2 className="mb-4 text-xl font-bold">Próximas Atividades</h2>
+          <div className="rounded-xl border bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+            {atividadesPendentes.length > 0 ? (
+              <ul className="divide-y dark:divide-gray-700">
+                {atividadesPendentes.map((ativ) => (
+                  <li key={ativ.id} className="py-3">
+                    <Link
+                      href={`/disciplinas/${ativ.disciplinas?.id}/semana/${ativ.semana}`}
+                      className="group flex items-center justify-between"
+                    >
+                      <div>
+                        <p className="font-semibold text-gray-800 dark:text-gray-200 group-hover:text-blue-600">
+                          {ativ.titulo}
+                        </p>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                          {ativ.disciplinas?.nome ?? ''} • Semana {ativ.semana}
+                        </p>
+                      </div>
+                      <ArrowRight
+                        size={16}
+                        className="text-gray-400 transition-transform group-hover:translate-x-1"
+                      />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="py-6 text-center text-gray-500">Você está em dia com todas as atividades!</p>
+            )}
+          </div>
+        </div>
+
+        <div className="lg:col-span-1">
+          <h2 className="mb-4 text-xl font-bold">Minhas Disciplinas</h2>
+          <div className="rounded-xl border bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+            {disciplinas.length > 0 ? (
+              <ul className="space-y-2">
+                {disciplinas.map((d) => (
+                  <li key={d.id}>
+                    <Link
+                      href={`/disciplinas/${d.id}`}
+                      className="group flex items-center justify-between rounded-lg p-3 transition hover:bg-gray-100 dark:hover:bg-gray-700/50"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Book size={16} className="text-gray-500" />
+                        <span className="font-medium">{d.nome}</span>
+                      </div>
+                      <ArrowRight
+                        size={16}
+                        className="text-gray-400 transition-transform group-hover:translate-x-1"
+                      />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="py-6 text-center text-gray-500">Nenhuma disciplina encontrada.</p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- DASHBOARD PROFESSOR ---
+function ProfessorDashboard() {
+  const [stats, setStats] = useState<Stats>({ totalAlunos: 0, totalConteudos: 0, totalSubmissoesPendentes: 0 });
+  const [submissoesPendentes, setSubmissoesPendentes] = useState<SubmissaoPendente[]>([]);
+  const [disciplinas, setDisciplinas] = useState<DisciplinaInfo[]>([]);
+  const [turmas, setTurmas] = useState<TurmaInfo[]>([]);
+  const [selectedTurma, setSelectedTurma] = useState<number | 'todas'>('todas');
+  const [userId, setUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      setUserId(user.id);
+
+      // Buscar turmas do professor
+      const { data: disciplinasRaw } = await supabase
         .from('professores_disciplinas')
-        .select('disciplinas(id, nome)')
+        .select('disciplinas(disciplinas_turmas(turmas(id,nome)))')
         .eq('professor_id', user.id);
 
-      const profDisciplinas = (disciplinasData as { disciplinas?: DisciplinaInfo[] | null }[] | null)
-        ?.flatMap(item => item.disciplinas || [])
-        .filter(Boolean) as DisciplinaInfo[] || [];
-      setDisciplinas(profDisciplinas);
-      const disciplinaIds = profDisciplinas.map(d => d.id);
+      const disciplinasData = (disciplinasRaw ?? []) as unknown as TurmaJoin[];
+      const turmasMap = new Map<number, string>();
 
-      if (disciplinaIds.length === 0) {
-        setLoading(false);
-        return;
+      // [CORRIGIDO] O loop foi ajustado para tratar 'd.disciplinas' como um objeto.
+      disciplinasData.forEach((d) => {
+        const disciplinaObj = d.disciplinas;
+        if (disciplinaObj && Array.isArray(disciplinaObj.disciplinas_turmas)) {
+            disciplinaObj.disciplinas_turmas.forEach((dt) => {
+                if (dt.turmas) {
+                    turmasMap.set(dt.turmas.id, dt.turmas.nome);
+                }
+            });
+        }
+      });
+
+      setTurmas(Array.from(turmasMap.entries()).map(([id, nome]) => ({ id, nome })));
+    })();
+  }, []);
+
+  const { isLoading } = useSWR(
+    () => (userId ? `professor-dashboard-${userId}-${selectedTurma}` : null),
+    async () => {
+      if (!userId) return null;
+
+      // Disciplinas do professor (pode vir múltiplas por linha)
+      const { data: disciplinasData } = await supabase
+        .from('professores_disciplinas')
+        .select('disciplinas:disciplinas(id,nome)')
+        .eq('professor_id', userId);
+
+      const profRows = (disciplinasData ?? []) as ProfessorDisciplinaRow[];
+      const profDisciplinas = profRows.flatMap((d) => d.disciplinas);
+
+      setDisciplinas(profDisciplinas);
+
+      let disciplinaIds = profDisciplinas.map((d) => d.id);
+
+      if (selectedTurma !== 'todas') {
+        const { data: idsTurma } = await supabase
+          .from('disciplinas_turmas')
+          .select('disciplina_id')
+          .eq('turma_id', selectedTurma);
+        const ids = (idsTurma ?? []).map((d) => d.disciplina_id);
+        disciplinaIds = disciplinaIds.filter((id) => ids.includes(id));
       }
 
-      // 2) Submissões pendentes
-      const { data: conteudosIdsData } = await supabase.from('conteudos').select('id').in('disciplina_id', disciplinaIds);
-      const conteudosIds = conteudosIdsData?.map((c: { id: number }) => c.id) || [];
+      if (disciplinaIds.length === 0) {
+        setSubmissoesPendentes([]);
+        setStats({ totalAlunos: 0, totalConteudos: 0, totalSubmissoesPendentes: 0 });
+        return true;
+      }
+
+      // Conteúdos
+      const { data: conteudosIdsData } = await supabase
+        .from('conteudos')
+        .select('id')
+        .in('disciplina_id', disciplinaIds);
+
+      const conteudosIds = (conteudosIdsData ?? []).map((c) => c.id);
 
       let pendentes: SubmissaoPendente[] = [];
       let totalPendentes = 0;
@@ -125,87 +332,108 @@ export default function DashboardClientPage() {
       if (conteudosIds.length > 0) {
         const { data: pendentesData, count } = await supabase
           .from('atividades_submissoes')
-          .select(`id, created_at, conteudos (id, titulo, disciplina_id, disciplinas (nome)), profiles (nome)`, { count: 'exact' })
+          .select(
+            `id, created_at,
+             conteudos:conteudos(titulo, disciplinas:disciplinas(nome)),
+             profiles:profiles(nome)`,
+            { count: 'exact' }
+          )
           .in('conteudo_id', conteudosIds)
           .is('nota', null)
           .order('created_at', { ascending: false })
           .limit(5);
 
-        totalPendentes = count || 0;
+        totalPendentes = count ?? 0;
 
-        const rows = (pendentesData as PendentesQueryResult[] | null) ?? [];
+        const rawPendentes = (pendentesData ?? []) as unknown as SubmissaoPendenteProfQuery[];
 
-        pendentes = rows.map((s) => {
-          // Usamos os helpers para extrair valores de forma consistente
-          const titulo_conteudo = getConteudoTitulo(s.conteudos);
-          const nome_disciplina = getDisciplinaNomeFromConteudo(s.conteudos);
-          const nome_aluno = getUserNome(s.profiles);
-
-          // Pegar ids a partir do primeiro conteúdo (se existir)
-          const firstConteudo = Array.isArray(s.conteudos) ? s.conteudos[0] : (s.conteudos as ConteudoPayload | null) ?? undefined;
+        pendentes = rawPendentes.map((s) => {
+          const conteudo = first(s.conteudos);
+          const disciplina = first(conteudo?.disciplinas ?? null);
+          const profile = first(s.profiles);
 
           return {
             id: s.id,
             created_at: s.created_at,
-            titulo_conteudo,
-            nome_aluno,
-            id_disciplina: firstConteudo?.disciplina_id ?? null,
-            nome_disciplina,
-            id_conteudo: firstConteudo?.id ?? null,
-          } as SubmissaoPendente;
+            titulo_conteudo: conteudo?.titulo ?? null,
+            nome_aluno: profile?.nome ?? null,
+            nome_disciplina: disciplina?.nome ?? null,
+          };
         });
-
-        setSubmissoesPendentes(pendentes);
-      } else {
-        setSubmissoesPendentes([]);
       }
 
-      // 3) Estatísticas
-      const { count: totalConteudos } = await supabase.from('conteudos').select('id', { count: 'exact' }).in('disciplina_id', disciplinaIds);
-      const { data: turmas } = await supabase.from('disciplinas_turmas').select('turma_id').in('disciplina_id', disciplinaIds);
-      const turmaIds = turmas?.map((t: { turma_id: number }) => t.turma_id) || [];
+      setSubmissoesPendentes(pendentes);
+
+      // Estatísticas
+      const { count: totalConteudos } = await supabase
+        .from('conteudos')
+        .select('id', { count: 'exact' })
+        .in('disciplina_id', disciplinaIds);
 
       let totalAlunos = 0;
-      if (turmaIds.length > 0) {
-        const { count } = await supabase.from('profiles').select('id', { count: 'exact' }).in('turma_id', turmaIds).eq('tipo_usuario', 'ALUNO');
-        totalAlunos = count || 0;
+      if (selectedTurma !== 'todas') {
+        const { count } = await supabase
+          .from('profiles')
+          .select('id', { count: 'exact' })
+          .eq('tipo_usuario', 'ALUNO')
+          .eq('turma_id', selectedTurma);
+        totalAlunos = count ?? 0;
+      } else {
+        const { data: todasTurmas } = await supabase
+          .from('disciplinas_turmas')
+          .select('turma_id')
+          .in('disciplina_id', disciplinaIds);
+        const turmaIds = [...new Set((todasTurmas ?? []).map((t) => t.turma_id))];
+        if (turmaIds.length > 0) {
+          const { count } = await supabase
+            .from('profiles')
+            .select('id', { count: 'exact' })
+            .eq('tipo_usuario', 'ALUNO')
+            .in('turma_id', turmaIds);
+          totalAlunos = count ?? 0;
+        }
       }
 
       setStats({
         totalAlunos,
-        totalConteudos: totalConteudos || 0,
+        totalConteudos: totalConteudos ?? 0,
         totalSubmissoesPendentes: totalPendentes,
       });
-    } catch (error) {
-      // Mantemos o erro no console para depuração
-      // (não usamos "any" aqui — o TS infere o tipo do catch como unknown)
-      // eslint-disable-next-line no-console
-      console.error('Erro ao carregar dados do dashboard:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [router]);
 
-  // Polling a cada 15s (fetch inicial + interval)
-  useEffect(() => {
-    void fetchDashboardData();
-    const interval = setInterval(() => void fetchDashboardData(), 15000);
-    return () => clearInterval(interval);
-  }, [fetchDashboardData]);
+      return true;
+    },
+    { refreshInterval: 5000, revalidateOnFocus: true, revalidateOnReconnect: true }
+  );
 
-  if (loading) {
+  if (isLoading)
     return (
       <div className="flex h-64 items-center justify-center text-gray-500">
-        <Loader2 className="mr-2 h-6 w-6 animate-spin" /> A carregar o seu painel...
+        <Loader2 className="mr-2 h-6 w-6 animate-spin" /> A atualizar dados...
       </div>
     );
-  }
 
   return (
     <div className="animate-fade-in p-6">
-      <h1 className="mb-8 text-3xl font-bold tracking-tight">Painel do Professor</h1>
+      <div className="flex flex-wrap items-center justify-between mb-8 gap-4">
+        <h1 className="text-3xl font-bold tracking-tight">Painel do Professor</h1>
+        <select
+          value={selectedTurma === 'todas' ? 'todas' : String(selectedTurma)}
+          onChange={(e) => {
+            const v = e.target.value;
+            setSelectedTurma(v === 'todas' ? 'todas' : Number(v));
+          }}
+          className="w-full sm:w-auto rounded-lg border p-2 shadow-sm dark:border-gray-600 dark:bg-gray-800"
+          disabled={isLoading}
+        >
+          <option value="todas">Visão Geral - Todas as Turmas</option>
+          {turmas.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.nome}
+            </option>
+          ))}
+        </select>
+      </div>
 
-      {/* Estatísticas */}
       <div className="mb-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
         <StatCard icon={<Users size={24} />} title="Total de Alunos" value={stats.totalAlunos} />
         <StatCard icon={<CheckSquare size={24} />} title="A Corrigir" value={stats.totalSubmissoesPendentes} />
@@ -213,51 +441,57 @@ export default function DashboardClientPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
-        {/* Submissões pendentes */}
         <div className="lg:col-span-2">
           <h2 className="mb-4 text-xl font-bold">Atividades a Corrigir</h2>
           <div className="rounded-xl border bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
             {submissoesPendentes.length > 0 ? (
               <ul className="divide-y dark:divide-gray-700">
-                {submissoesPendentes.map((sub) => (
-                  <li key={sub.id} className="py-3">
+                {submissoesPendentes.map((s) => (
+                  <li key={s.id} className="py-3">
                     <Link href={`/professor/submissoes`} className="group flex items-center justify-between">
                       <div>
                         <p className="font-semibold text-gray-800 dark:text-gray-200 group-hover:text-blue-600">
-                          {sub.nome_aluno} <span className="font-normal text-gray-500">enviou</span> {sub.titulo_conteudo}
+                          {s.nome_aluno}{' '}
+                          <span className="font-normal text-gray-500">enviou</span> {s.titulo_conteudo}
                         </p>
                         <p className="text-sm text-gray-500 dark:text-gray-400">
-                          {sub.nome_disciplina ?? 'Disciplina desconhecida'} • {new Date(sub.created_at).toLocaleDateString('pt-BR')}
+                          {s.nome_disciplina ?? 'Disciplina desconhecida'} •{' '}
+                          {new Date(s.created_at).toLocaleDateString('pt-BR')}
                         </p>
                       </div>
-                      <ArrowRight size={16} className="text-gray-400 transition-transform group-hover:translate-x-1" />
+                      <ArrowRight
+                        size={16}
+                        className="text-gray-400 transition-transform group-hover:translate-x-1"
+                      />
                     </Link>
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="py-6 text-center text-gray-500">Nenhuma atividade pendente. Bom trabalho!</p>
+              <p className="py-6 text-center text-gray-500">Nenhuma atividade pendente para a seleção atual.</p>
             )}
           </div>
         </div>
 
-        {/* Disciplinas */}
         <div className="lg:col-span-1">
           <h2 className="mb-4 text-xl font-bold">Minhas Disciplinas</h2>
           <div className="rounded-xl border bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
             {disciplinas.length > 0 ? (
               <ul className="space-y-2">
-                {disciplinas.map((disc) => (
-                  <li key={disc.id}>
+                {disciplinas.map((d) => (
+                  <li key={d.id}>
                     <Link
-                      href={`/disciplinas/${disc.id}`}
+                      href={`/disciplinas/${d.id}`}
                       className="group flex items-center justify-between rounded-lg p-3 transition hover:bg-gray-100 dark:hover:bg-gray-700/50"
                     >
                       <div className="flex items-center gap-3">
                         <Book size={16} className="text-gray-500" />
-                        <span className="font-medium">{disc.nome}</span>
+                        <span className="font-medium">{d.nome}</span>
                       </div>
-                      <ArrowRight size={16} className="text-gray-400 transition-transform group-hover:translate-x-1" />
+                      <ArrowRight
+                        size={16}
+                        className="text-gray-400 transition-transform group-hover:translate-x-1"
+                      />
                     </Link>
                   </li>
                 ))}
@@ -272,16 +506,37 @@ export default function DashboardClientPage() {
   );
 }
 
-const StatCard = ({ icon, title, value }: { icon: React.ReactNode; title: string; value: number | string }) => (
-  <div className="rounded-xl border bg-white p-6 shadow-sm transition hover:shadow-md dark:border-gray-700 dark:bg-gray-800">
-    <div className="flex items-center gap-4">
-      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-100 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400">
-        {icon}
+// --- COMPONENTE PRINCIPAL ---
+export default function DashboardClientPage() {
+  const router = useRouter();
+  const [userRole, setUserRole] = useState<'ALUNO' | 'PROFESSOR' | null>(null);
+  const [loadingRole, setLoadingRole] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        router.push('/login');
+        return;
+      }
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('tipo_usuario')
+        .eq('id', user.id)
+        .single();
+      setUserRole(profile?.tipo_usuario ?? null);
+      setLoadingRole(false);
+    })();
+  }, [router]);
+
+  if (loadingRole)
+    return (
+      <div className="flex h-screen items-center justify-center text-gray-500">
+        <Loader2 className="mr-2 h-6 w-6 animate-spin" /> A verificar utilizador...
       </div>
-      <div>
-        <p className="text-sm text-gray-500 dark:text-gray-400">{title}</p>
-        <p className="text-3xl font-bold text-gray-900 dark:text-white">{value}</p>
-      </div>
-    </div>
-  </div>
-);
+    );
+
+  if (userRole === 'ALUNO') return <AlunoDashboard />;
+  if (userRole === 'PROFESSOR') return <ProfessorDashboard />;
+  return <div className="p-6">Tipo de utilizador não reconhecido.</div>;
+}

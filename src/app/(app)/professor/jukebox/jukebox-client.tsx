@@ -69,7 +69,7 @@ export default function JukeboxPlayerClientPage() {
 
   useEffect(() => { fetchInitialData(); }, [fetchInitialData]);
 
-  // --- 2. Busca as turmas quando uma escola é selecionada (LÓGICA CORRIGIDA) ---
+  // --- 2. Busca as turmas quando uma escola é selecionada ---
   useEffect(() => {
     const fetchTurmasDaEscola = async () => {
       if (!selectedEscola) {
@@ -142,21 +142,32 @@ export default function JukeboxPlayerClientPage() {
     { refreshInterval: 1000 }
   );
 
-  // --- Efeitos e Handlers (sem alterações) ---
+  // --- [CORRIGIDO] LÓGICA DE REPRODUÇÃO AUTOMÁTICA ---
   useEffect(() => {
-    if (!songs) { setCurrentSong(null); return; }
+    if (!songs) {
+      setCurrentSong(null);
+      return;
+    }
+
     const playingSong = songs.find(s => s.status === 'playing');
     const queuedSong = songs.find(s => s.status === 'queued');
-    const nowPlaying = playingSong ?? queuedSong ?? null;
-    setCurrentSong(prev => {
-      if (prev?.id !== nowPlaying?.id) {
+    const newCurrentSong = playingSong ?? queuedSong ?? null;
+
+    // Apenas atualiza se a música realmente mudou
+    if (currentSong?.id !== newCurrentSong?.id) {
+      setCurrentSong(newCurrentSong);
+
+      // LÓGICA CHAVE: Se o usuário já interagiu uma vez (o player já está visível),
+      // a próxima música deve começar a tocar automaticamente.
+      if (hasInteracted) {
+        setIsPlaying(true);
+      } else {
+        // Se for a primeira música, esperamos o clique do usuário.
         setIsPlaying(false);
-        setHasInteracted(false);
-        return nowPlaying;
       }
-      return prev;
-    });
-  }, [songs]);
+    }
+  }, [songs, currentSong, hasInteracted]);
+
 
   const handlePlayNext = async () => {
     if (!currentSong || !songs) return;
@@ -219,11 +230,10 @@ export default function JukeboxPlayerClientPage() {
       
       {selectedTurmaId ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* ... O resto do seu JSX (Player e Fila) continua aqui, sem alterações ... */}
           <div className="lg:col-span-2">
             <div className="relative aspect-video w-full rounded-xl overflow-hidden shadow-2xl bg-black">
               {isLoadingQueue ? (
-                 <div className="absolute inset-0 flex items-center justify-center"><Loader2 className="animate-spin text-white" size={48} /></div>
+                  <div className="absolute inset-0 flex items-center justify-center"><Loader2 className="animate-spin text-white" size={48} /></div>
               ) : currentSong && hasInteracted ? (
                 <ReactPlayer
                   url={currentSong.youtube_url}

@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { BrainCircuit, Lock, ArrowLeft } from 'lucide-react';
+import { BrainCircuit, Lock, ArrowLeft, Loader2 } from 'lucide-react';
 import { motion, Variants } from 'framer-motion';
 
 export default function UpdatePasswordPage() {
@@ -15,31 +15,35 @@ export default function UpdatePasswordPage() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
+  // Estados para controlar a validação do link
+  const [isVerifying, setIsVerifying] = useState(true);
+  const [isValidLink, setIsValidLink] = useState(false);
+
   useEffect(() => {
-    // Checar sessão ao carregar a página
-    const checkSession = async () => {
-      const { data } = await supabase.auth.getSession();
-
-      if (!data.session) {
-        // Se não houver sessão, significa que o link não é válido ou expirou
-        setError('Link inválido ou sessão expirada. Solicite um novo link de redefinição.');
-        setTimeout(() => router.push('/login'), 4000);
-      } else {
-        setMessage('Sessão de recuperação de senha iniciada. Crie uma nova senha.');
-      }
-    };
-
-    checkSession();
-
-    // Listener para eventos de autenticação
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+    // [REMOVIDO] A verificação manual com getSession() foi removida.
+    
+    // Listener para eventos de autenticação é a forma correta
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'PASSWORD_RECOVERY') {
-        setMessage('Sessão de recuperação de senha iniciada. Crie uma nova senha.');
+        // O link é válido, podemos mostrar o formulário
+        setIsValidLink(true);
+        setMessage('Sessão de recuperação iniciada. Crie uma nova senha.');
       }
+      // Paramos a verificação assim que um evento ocorre
+      setIsVerifying(false);
     });
 
-    return () => subscription.unsubscribe();
-  }, [router]);
+    // Adiciona um timeout como segurança. Se o evento não for disparado
+    // em 2 segundos, assumimos que o link é inválido.
+    const timer = setTimeout(() => {
+      setIsVerifying(false);
+    }, 2000);
+
+    return () => {
+      subscription?.unsubscribe();
+      clearTimeout(timer);
+    };
+  }, []);
 
   const handleUpdatePassword = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -56,7 +60,7 @@ export default function UpdatePasswordPage() {
     if (error) {
       setError(`Erro ao atualizar a senha: ${error.message}`);
     } else {
-      setMessage('Senha atualizada com sucesso! Redirecionando para o login...');
+      setMessage('Senha atualizada com sucesso! A redirecionar para o login...');
       setTimeout(() => router.push('/login'), 3000);
     }
     setLoading(false);
@@ -72,6 +76,36 @@ export default function UpdatePasswordPage() {
     visible: { opacity: 1, y: 0, transition: { type: 'spring' as const, stiffness: 60 } },
   };
 
+  // Enquanto verifica o link, mostra um loader
+  if (isVerifying) {
+    return (
+      <div className="flex min-h-screen w-full items-center justify-center bg-gray-100 dark:bg-gray-900">
+        <Loader2 className="h-12 w-12 animate-spin text-blue-600" />
+        <p className="ml-4 text-lg">A verificar o link...</p>
+      </div>
+    );
+  }
+
+  // Se o link for inválido após a verificação
+  if (!isValidLink) {
+    return (
+      <div className="flex min-h-screen w-full items-center justify-center bg-gray-100 dark:bg-gray-900">
+         <motion.div
+           initial={{ opacity: 0, scale: 0.9 }}
+           animate={{ opacity: 1, scale: 1 }}
+           className="w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-xl dark:bg-gray-800"
+         >
+          <h2 className="text-2xl font-bold text-red-500">Link Inválido ou Expirado</h2>
+          <p className="mt-4 text-gray-700 dark:text-gray-300">Por favor, solicite um novo link de redefinição de senha.</p>
+          <Link href="/login" className="mt-6 inline-block text-blue-600 hover:underline">
+            Voltar para o Login
+          </Link>
+        </motion.div>
+      </div>
+    );
+  }
+
+  // Se o link for válido, mostra o formulário
   return (
     <div className="flex min-h-screen w-full flex-wrap">
       {/* Lado Esquerdo: Branding */}
