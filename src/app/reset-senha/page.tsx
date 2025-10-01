@@ -18,9 +18,7 @@ export default function ResetSenhaPage() {
     setError('');
     setLoading(true);
 
-    // [ALTERAÇÃO IMPORTANTE]
-    // SUBSTITUA 'SEU_PROJECT_REF' ABAIXO PELO ID DO SEU PROJETO SUPABASE
-    const redirectUrl = 'https://SEU_PROJECT_REF.supabase.co/functions/v1/reset-interceptor';
+    const redirectUrl = 'https://pbbijfiuiovavnxzbddr.supabase.co/functions/v1/reset-interceptor';
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: redirectUrl,
