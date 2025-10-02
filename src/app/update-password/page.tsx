@@ -7,7 +7,6 @@ import Link from 'next/link';
 import { BrainCircuit, Lock, ArrowLeft, Loader2, AlertTriangle } from 'lucide-react';
 import { motion, Variants } from 'framer-motion';
 
-// Usamos um Wrapper com Suspense para carregar os parâmetros da URL de forma segura
 export default function UpdatePasswordPageWrapper() {
   return (
     <Suspense fallback={
@@ -26,16 +25,26 @@ function UpdatePasswordPage() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
 
+  const router = useRouter();
   const searchParams = useSearchParams();
+
   const [isValidatingToken, setIsValidatingToken] = useState(true);
   const [isTokenValid, setIsTokenValid] = useState(false);
 
   useEffect(() => {
-    const accessToken = searchParams.get('access_token');
-    const refreshToken = searchParams.get('refresh_token');
-    const errorParam = searchParams.get('error');
+    // 1. tenta pegar tokens do query param
+    let accessToken = searchParams.get('access_token');
+    let refreshToken = searchParams.get('refresh_token');
+    let errorParam = searchParams.get('error');
+
+    // 2. se não vier query param, tenta pegar do hash (#)
+    if (!accessToken || !refreshToken) {
+      const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+      accessToken = accessToken || hashParams.get('access_token');
+      refreshToken = refreshToken || hashParams.get('refresh_token');
+      errorParam = errorParam || hashParams.get('error');
+    }
 
     if (errorParam) {
       setError('Ocorreu um erro. O link pode ser inválido ou ter expirado.');
@@ -97,7 +106,7 @@ function UpdatePasswordPage() {
   }
 
   if (!isTokenValid) {
-     return (
+    return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50">
         <div className="text-center p-8 bg-white rounded-lg shadow-md">
           <AlertTriangle className="mx-auto h-12 w-12 text-red-500" />
