@@ -1,75 +1,47 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { BrainCircuit, Lock, ArrowLeft, Loader2, AlertTriangle } from 'lucide-react';
 import { motion, Variants } from 'framer-motion';
 
-export default function UpdatePasswordPageWrapper() {
-  return (
-    <Suspense fallback={
-      <div className="flex min-h-screen w-full items-center justify-center bg-gray-100 dark:bg-gray-900">
-        <Loader2 className="h-12 w-12 animate-spin text-blue-600" />
-      </div>
-    }>
-      <UpdatePasswordPage />
-    </Suspense>
-  );
-}
-
-function UpdatePasswordPage() {
+export default function UpdatePasswordPage() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-
-  const router = useRouter();
-  const searchParams = useSearchParams();
-
   const [isValidatingToken, setIsValidatingToken] = useState(true);
   const [isTokenValid, setIsTokenValid] = useState(false);
 
+  const router = useRouter();
+
   useEffect(() => {
-    // Pegar token do hash ou query
-    let accessToken = searchParams.get('access_token');
-    let refreshToken = searchParams.get('refresh_token');
-    let errorParam = searchParams.get('error');
-
-    if (!accessToken || !refreshToken) {
-      const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-      accessToken = accessToken || hashParams.get('access_token');
-      refreshToken = refreshToken || hashParams.get('refresh_token');
-      errorParam = errorParam || hashParams.get('error');
-    }
-
-    if (errorParam) {
-      setError('Ocorreu um erro. O link pode ser inválido ou ter expirado.');
-      setIsValidatingToken(false);
-      return;
-    }
+    // Captura tokens do hash enviado pelo Supabase
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const accessToken = hashParams.get('access_token');
+    const refreshToken = hashParams.get('refresh_token');
 
     if (accessToken && refreshToken) {
-      supabase.auth.setSession({
-        access_token: accessToken,
-        refresh_token: refreshToken,
-      }).then(({ error }) => {
-        if (error) {
-          setError('Sessão inválida. Por favor, solicite um novo link.');
-          setIsTokenValid(false);
-        } else {
-          setIsTokenValid(true);
-          setMessage('Sessão de recuperação válida. Crie uma nova senha.');
-        }
-        setIsValidatingToken(false);
-      });
+      supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
+        .then(({ error }) => {
+          if (error) {
+            setError('Sessão inválida. Por favor, solicite um novo link.');
+            setIsTokenValid(false);
+          } else {
+            setIsTokenValid(true);
+            setMessage('Sessão válida. Crie sua nova senha.');
+          }
+          setIsValidatingToken(false);
+        });
     } else {
-      setError('Link inválido ou expirado. Por favor, solicite um novo link.');
+      setError('Link inválido ou expirado. Solicite um novo link.');
+      setIsTokenValid(false);
       setIsValidatingToken(false);
     }
-  }, [searchParams]);
+  }, []);
 
   const handleUpdatePassword = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -77,6 +49,7 @@ function UpdatePasswordPage() {
       setError('As senhas não coincidem.');
       return;
     }
+
     setError('');
     setMessage('');
     setLoading(true);
@@ -89,6 +62,7 @@ function UpdatePasswordPage() {
       setMessage('Senha atualizada com sucesso! Redirecionando para o login...');
       setTimeout(() => router.push('/login'), 3000);
     }
+
     setLoading(false);
   };
 
@@ -99,7 +73,7 @@ function UpdatePasswordPage() {
     return (
       <div className="flex min-h-screen w-full items-center justify-center bg-gray-100 dark:bg-gray-900">
         <Loader2 className="h-12 w-12 animate-spin text-blue-600" />
-        <p className="ml-4 text-lg">A validar o link...</p>
+        <p className="ml-4 text-lg">Validando link...</p>
       </div>
     );
   }
@@ -109,11 +83,9 @@ function UpdatePasswordPage() {
       <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50">
         <div className="text-center p-8 bg-white rounded-lg shadow-md">
           <AlertTriangle className="mx-auto h-12 w-12 text-red-500" />
-          <h1 className="mt-4 text-xl font-bold text-gray-800">Link Inválido ou Sessão Expirada</h1>
+          <h1 className="mt-4 text-xl font-bold text-gray-800">Link Inválido ou Expirado</h1>
           <p className="mt-2 text-gray-600">{error}</p>
-          <Link href="/login" className="mt-6 inline-block text-blue-600 hover:underline">
-            Voltar para o Login
-          </Link>
+          <Link href="/login" className="mt-6 inline-block text-blue-600 hover:underline">Voltar para o Login</Link>
         </div>
       </div>
     );

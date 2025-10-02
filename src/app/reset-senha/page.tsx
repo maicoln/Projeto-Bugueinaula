@@ -19,7 +19,7 @@ export default function ResetSenhaPage() {
     setLoading(true);
 
     // REDIRECT DIRETO PARA SUA PÁGINA DE UPDATE PASSWORD
-    const redirectUrl = 'https://bugueinaula.vercel.app/update-password';
+    const redirectUrl = 'https://bugueinaula.com/update-password';
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: redirectUrl,
