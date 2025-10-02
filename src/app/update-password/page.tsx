@@ -33,12 +33,11 @@ function UpdatePasswordPage() {
   const [isTokenValid, setIsTokenValid] = useState(false);
 
   useEffect(() => {
-    // 1. tenta pegar tokens do query param
+    // Pegar token do hash ou query
     let accessToken = searchParams.get('access_token');
     let refreshToken = searchParams.get('refresh_token');
     let errorParam = searchParams.get('error');
 
-    // 2. se não vier query param, tenta pegar do hash (#)
     if (!accessToken || !refreshToken) {
       const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
       accessToken = accessToken || hashParams.get('access_token');
@@ -129,24 +128,30 @@ function UpdatePasswordPage() {
           <p className="mt-2 text-lg text-blue-100">Crie uma nova senha de acesso.</p>
         </div>
       </motion.div>
+
       <div className="flex w-full flex-col items-center justify-center bg-gray-100 p-8 dark:bg-gray-900 md:w-1/2">
         <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.6, ease: 'easeOut' }} className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
           <motion.h2 initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: 'easeOut' }} className="mb-6 text-center text-3xl font-bold text-gray-900 dark:text-white">Criar Nova Senha</motion.h2>
+
           <motion.form onSubmit={handleUpdatePassword} variants={containerVariants} initial="hidden" animate="visible" className="space-y-4">
             <motion.div className="relative" variants={itemVariants}>
               <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
               <input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="Nova Senha" className="w-full rounded-lg border border-gray-300 bg-white p-3 pl-10 text-gray-900 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white" />
             </motion.div>
+
             <motion.div className="relative" variants={itemVariants}>
               <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
               <input id="confirmPassword" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required placeholder="Confirme a Nova Senha" className="w-full rounded-lg border border-gray-300 bg-white p-3 pl-10 text-gray-900 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white" />
             </motion.div>
+
             <motion.button type="submit" disabled={loading} variants={itemVariants} whileHover={{ scale: 1.05, boxShadow: '0px 0px 12px rgba(59,130,246,0.6)' }} whileTap={{ scale: 0.95 }} className="w-full rounded-lg bg-gradient-to-r from-blue-600 to-blue-700 p-3 text-white font-semibold shadow-md transition disabled:opacity-50">
               {loading ? 'A atualizar...' : 'Atualizar Senha'}
             </motion.button>
           </motion.form>
-          {message && (<motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-4 text-center text-sm text-green-500">{message}</motion.p>)}
-          {error && (<motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-4 text-center text-sm text-red-500">{error}</motion.p>)}
+
+          {message && <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-4 text-center text-sm text-green-500">{message}</motion.p>}
+          {error && <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-4 text-center text-sm text-red-500">{error}</motion.p>}
+
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4, duration: 0.5 }} className="mt-6 text-center">
             <Link href="/login" className="flex items-center justify-center gap-2 text-sm font-semibold text-blue-600 hover:underline dark:text-blue-400">
               <ArrowLeft size={16} /> Voltar para o Login

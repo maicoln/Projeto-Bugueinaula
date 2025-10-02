@@ -1,18 +1,27 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
-serve((req) => {
-  const url = new URL(req.url);
+serve((_req) => {
+  const html = `
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+      <head>
+        <meta charset="UTF-8">
+        <title>Redirecionando...</title>
+      </head>
+      <body>
+        <p>Redirecionando para a redefinição de senha...</p>
+        <script>
+          // Captura o hash da URL (tokens do Supabase)
+          const hash = window.location.hash;
 
-  // captura os parâmetros normais (?param=value)
-  const searchParams = url.searchParams.toString();
+          // Redireciona para a página do seu site, preservando o hash
+          window.location.href = "https://bugueinaula.com/update-password" + hash;
+        </script>
+      </body>
+    </html>
+  `;
 
-  // captura também o hash (#access_token=...&refresh_token=...)
-  const hash = url.hash; // já vem com o "#"
-
-  // monta a URL final mantendo tudo
-  const redirectUrl =
-    `https://bugueinaula.vercel.app/update-password${searchParams ? "?" + searchParams : ""}${hash}`;
-
-  // redireciona para o site
-  return Response.redirect(redirectUrl, 302);
+  return new Response(html, {
+    headers: { "Content-Type": "text/html; charset=utf-8" },
+  });
 });
