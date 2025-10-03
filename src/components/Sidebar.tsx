@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Book, ChevronLeft, LayoutDashboard, BrainCircuit, PenSquare, FileEdit, ClipboardList, Music } from 'lucide-react'; // <<< Ícone da Jukebox adicionado
+import { Book, ChevronLeft, LayoutDashboard, BrainCircuit, PenSquare, FileEdit, ClipboardList, Music, HelpCircle } from 'lucide-react'; // <<< Ícone adicionado
 import { Dispatch, SetStateAction, useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
@@ -36,23 +36,25 @@ export default function Sidebar({
         }
       }
     }
-    void fetchUserRole(); // Usando void para lidar com a promise de forma limpa
+    void fetchUserRole();
   }, []);
 
   const menuItems = [
     { icon: LayoutDashboard, text: 'Painel', href: '/', roles: ['ALUNO', 'PROFESSOR'] },
+    // <<< NOVO LINK DA CENTRAL DE DÚVIDAS (para ambos os papéis) >>>
+    { icon: HelpCircle, text: 'Central de Dúvidas', href: '/duvidas', roles: ['ALUNO', 'PROFESSOR'] },
     
     // Links de Aluno
     { icon: Book, text: 'Disciplinas', href: '/disciplinas', roles: ['ALUNO'] },
     { icon: ClipboardList, text: 'Minhas Atividades', href: '/aluno/atividades', roles: ['ALUNO'] },
-    { icon: Music, text: 'Jukebox Coletiva', href: '/aluno/jukebox', roles: ['ALUNO'] }, // <<< NOVO LINK DA JUKEBOX PARA ALUNOS
+    { icon: Music, text: 'Jukebox Coletiva', href: '/aluno/jukebox', roles: ['ALUNO'] },
 
     // Links de Professor
     { icon: Book, text: 'Minhas Disciplinas', href: '/professor/minhas-disciplinas', roles: ['PROFESSOR'] },
     { icon: PenSquare, text: 'Cadastrar Conteúdo', href: '/professor/cadastrar-conteudo', roles: ['PROFESSOR'] },
     { icon: FileEdit, text: 'Gerir Conteúdo', href: '/professor/gerir-conteudo', roles: ['PROFESSOR'] },
     { icon: ClipboardList, text: 'Ver Submissões', href: '/professor/submissoes', roles: ['PROFESSOR'] },
-    { icon: Music, text: 'Jukebox Player', href: '/professor/jukebox', roles: ['PROFESSOR'] }, // <<< NOVO LINK DA JUKEBOX PARA PROFESSORES
+    { icon: Music, text: 'Jukebox Player', href: '/professor/jukebox', roles: ['PROFESSOR'] },
   ];
 
   const visibleMenuItems = menuItems.filter(item => item.roles.includes(userRole));
@@ -81,7 +83,6 @@ export default function Sidebar({
           md:translate-x-0
         `}
       >
-        {/* Botão de recolher/expandir */}
         <button
           onClick={() => setCollapsed(!isCollapsed)}
           className="absolute top-6 -right-3 z-50 hidden md:flex items-center justify-center
@@ -95,7 +96,6 @@ export default function Sidebar({
           />
         </button>
 
-        {/* Header da sidebar */}
         <div className="flex items-center h-16">
           <Link
             href="/"
@@ -112,10 +112,9 @@ export default function Sidebar({
           </Link>
         </div>
 
-        {/* Menu */}
         <nav className="flex-1 px-2 py-2 space-y-1">
           {visibleMenuItems.map((item) => {
-            const isActive = pathname === item.href;
+            const isActive = pathname.startsWith(item.href) && item.href.length > 1 || pathname === item.href;
             return (
               <div key={item.text} className="relative group">
                 <Link href={item.href}>
@@ -143,7 +142,6 @@ export default function Sidebar({
                   </span>
                 </Link>
 
-                {/* Tooltip quando recolhido */}
                 {isCollapsed && (
                   <div className="absolute left-full ml-4 hidden md:group-hover:block px-2 py-1 text-sm bg-blue-600 text-white dark:bg-gray-800 rounded-md whitespace-nowrap shadow-lg transition-all duration-300 transform scale-90 md:group-hover:scale-100">
                     {item.text}
