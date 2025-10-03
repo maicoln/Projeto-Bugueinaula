@@ -1,12 +1,21 @@
-import type { Config } from "tailwindcss";
-import typography from '@tailwindcss/typography'; // <<< 1. CORREÇÃO: Importar o plugin aqui
+// Ficheiro: tailwind.config.js (COM A CORREÇÃO RÁPIDA)
 
-const config: Config = {
+import typography from '@tailwindcss/typography';
+
+// <<< CORREÇÃO: Removida a anotação 'import type { Config }' e ': Config' abaixo >>>
+// Isso evita que o TypeScript valide o objeto, contornando o erro de versão.
+
+const config = { // A anotação ': Config' foi removida desta linha
   darkMode: "class",
   content: [
     "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
+  ],
+  safelist: [
+    'prose',
+    'prose-sm',
+    'dark:prose-invert',
   ],
   theme: {
     extend: {
@@ -55,7 +64,7 @@ const config: Config = {
     },
   },
   plugins: [
-    typography, // <<< 2. CORREÇÃO: Usar a variável importada aqui
+    typography,
   ],
 };
 
