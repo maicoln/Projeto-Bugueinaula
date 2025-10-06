@@ -1,4 +1,3 @@
-// Ficheiro: src/app/(app)/duvidas/[duvidaId]/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -6,12 +5,20 @@ import { supabase } from '@/lib/supabaseClient';
 import { useRouter, useParams } from 'next/navigation';
 import useSWR, { useSWRConfig } from 'swr';
 import Link from 'next/link';
-import { ArrowLeft, Send, Loader2, ThumbsUp, CheckCircle, Trash2, Award } from 'lucide-react';
+import { ArrowLeft, Send, Loader2, ThumbsUp, CheckCircle, Trash2, Award, MessageCircle } from 'lucide-react';
 import AdvancedEditor from '@/components/AdvancedEditor';
 import DOMPurify from 'dompurify';
 
 // #region --- TIPOS ---
 type ProfileInfo = { id: string; nome: string; tipo_usuario: string; };
+
+type Comentario = {
+  id: number;
+  corpo: string;
+  created_at: string;
+  profile: ProfileInfo | null;
+};
+
 type Resposta = {
   id: number;
   corpo: string;
@@ -22,6 +29,7 @@ type Resposta = {
   profile: ProfileInfo | null;
   user_has_voted: boolean;
 };
+
 type DuvidaCompleta = {
   id: number;
   titulo: string;
@@ -29,12 +37,14 @@ type DuvidaCompleta = {
   created_at: string;
   resolvida: boolean;
   is_anonymous: boolean;
-  profile: ProfileInfo | null;
+  profile: ProfileInfo | null; // O autor da pergunta
   respostas: Resposta[];
+  comentarios: Comentario[];
 };
 
 // Tipos Brutos (Raw) que correspondem à resposta da API
 type RawProfile = { id: string; nome: string; tipo_usuario: string };
+type RawComentario = { id: number; corpo: string; created_at: string; profiles: RawProfile | null; };
 type RawResposta = {
   id: number;
   corpo: string;
@@ -42,7 +52,7 @@ type RawResposta = {
   is_best_answer: boolean;
   votes: number;
   is_anonymous: boolean;
-  profiles: RawProfile | null; // A query com join direto retorna objeto
+  profiles: RawProfile | null;
   duvida_resposta_votes: { user_id: string }[];
 };
 type RawDuvida = {
@@ -52,8 +62,9 @@ type RawDuvida = {
   created_at: string;
   resolvida: boolean;
   is_anonymous: boolean;
-  profiles: RawProfile | null; // A query com join direto retorna objeto
+  profiles: RawProfile | null;
   respostas_duvidas: RawResposta[];
+  comentarios_duvidas: RawComentario[];
 };
 // #endregion
 
@@ -64,7 +75,8 @@ const fetchDuvida = async (duvidaId: string, userId: string | null) => {
     .select(`
       *,
       profiles (id, nome, tipo_usuario),
-      respostas_duvidas ( *, profiles (id, nome, tipo_usuario), duvida_resposta_votes(user_id) )
+      respostas_duvidas ( *, profiles (id, nome, tipo_usuario), duvida_resposta_votes(user_id) ),
+      comentarios_duvidas ( *, profiles (id, nome, tipo_usuario) )
     `)
     .eq('id', duvidaId)
     .single();
@@ -76,11 +88,15 @@ const fetchDuvida = async (duvidaId: string, userId: string | null) => {
   const duvidaLimpa: DuvidaCompleta = {
     ...rawDuvida,
     profile: rawDuvida.profiles,
-    respostas: rawDuvida.respostas_duvidas.map(resposta => ({
+    respostas: (rawDuvida.respostas_duvidas || []).map(resposta => ({
       ...resposta,
       profile: resposta.profiles,
       user_has_voted: userId ? resposta.duvida_resposta_votes.some(vote => vote.user_id === userId) : false,
-    }))
+    })),
+    comentarios: (rawDuvida.comentarios_duvidas || []).map(comentario => ({
+      ...comentario,
+      profile: comentario.profiles,
+    })),
   };
   return duvidaLimpa;
 };
@@ -88,12 +104,11 @@ const fetchDuvida = async (duvidaId: string, userId: string | null) => {
 export default function DuvidaDetalhePage() {
   const params = useParams();
   const duvidaId = params.duvidaId as string;
-  const router = useRouter();
   const { mutate } = useSWRConfig(); 
   
   const [newAnswer, setNewAnswer] = useState('');
+  const [newComment, setNewComment] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [message, setMessage] = useState('');
   const [currentUser, setCurrentUser] = useState<ProfileInfo | null>(null);
   const [newAnswerIsAnonymous, setNewAnswerIsAnonymous] = useState(false);
 
@@ -114,9 +129,10 @@ export default function DuvidaDetalhePage() {
   useEffect(() => {
     if (!duvidaId) return;
     const channel = supabase
-      .channel(`respostas_duvida_${duvidaId}`)
+      .channel(`duvida_detalhe_${duvidaId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'respostas_duvidas', filter: `duvida_id=eq.${duvidaId}` }, () => { void mutate(swrKey); })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'duvidas', filter: `id=eq.${duvidaId}` }, () => { void mutate(swrKey); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'comentarios_duvidas', filter: `duvida_id=eq.${duvidaId}` }, () => { void mutate(swrKey); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'duvidas', filter: `id=eq.${duvidaId}` }, () => { void mutate(swrKey); })
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
   }, [duvidaId, mutate, swrKey]);
@@ -125,9 +141,18 @@ export default function DuvidaDetalhePage() {
     e.preventDefault();
     if (!newAnswer.trim() || !currentUser) return;
     setIsSubmitting(true);
-    const { error } = await supabase.from('respostas_duvidas').insert({ corpo: newAnswer, duvida_id: Number(duvidaId), autor_id: currentUser.id, is_anonymous: newAnswerIsAnonymous });
-    if (error) { setMessage(`Erro ao enviar resposta: ${error.message}`); } 
-    else { setNewAnswer(''); setNewAnswerIsAnonymous(false); }
+    await supabase.from('respostas_duvidas').insert({ corpo: newAnswer, duvida_id: Number(duvidaId), autor_id: currentUser.id, is_anonymous: newAnswerIsAnonymous });
+    setNewAnswer(''); 
+    setNewAnswerIsAnonymous(false);
+    setIsSubmitting(false);
+  };
+
+  const handlePostComment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newComment.trim() || !currentUser) return;
+    setIsSubmitting(true);
+    await supabase.from('comentarios_duvidas').insert({ corpo: newComment, duvida_id: Number(duvidaId), autor_id: currentUser.id });
+    setNewComment('');
     setIsSubmitting(false);
   };
 
@@ -156,7 +181,8 @@ export default function DuvidaDetalhePage() {
       return b.votes - a.votes;
   });
     
-  const podeMarcarMelhorResposta = currentUser.tipo_usuario === 'PROFESSOR' || currentUser.id === duvida.profile?.id;
+  const isAuthor = currentUser.id === duvida.profile?.id;
+  const podeMarcarMelhorResposta = currentUser.tipo_usuario === 'PROFESSOR' || isAuthor;
 
   return (
     <div className="p-6 animate-fade-in max-w-4xl mx-auto">
@@ -169,6 +195,27 @@ export default function DuvidaDetalhePage() {
                 Perguntado por {(duvida.is_anonymous && currentUser.tipo_usuario !== 'PROFESSOR') ? 'Anónimo' : duvida.profile?.nome || 'Desconhecido'} em {new Date(duvida.created_at).toLocaleDateString('pt-BR')}
             </p>
             <div className="prose prose-sm dark:prose-invert mt-4 max-w-none" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(duvida.corpo) }} />
+        </div>
+
+        {/* Secção de Comentários da Pergunta */}
+        <div className="pl-6 border-l-2 ml-4 mt-4 space-y-4">
+            {duvida.comentarios.map(comment => (
+                <div key={comment.id} className="text-sm">
+                    <p className="whitespace-pre-wrap"><span className="font-semibold">{comment.profile?.nome}: </span>{comment.corpo}</p>
+                    <p className="text-xs text-gray-400">{new Date(comment.created_at).toLocaleString('pt-BR')}</p>
+                </div>
+            ))}
+            {isAuthor && (
+                <form onSubmit={handlePostComment} className="pt-2">
+                    <textarea value={newComment} onChange={(e) => setNewComment(e.target.value)} placeholder="Adicionar um comentário para clarificar a sua pergunta..." rows={2} className="w-full text-sm rounded-md border p-2 shadow-sm dark:border-gray-600 dark:bg-gray-700"></textarea>
+                    <div className="flex justify-end mt-2">
+                        <button type="submit" disabled={isSubmitting || !newComment.trim()} className="flex items-center gap-2 rounded-md bg-gray-500 px-3 py-1 text-xs font-semibold text-white transition hover:bg-gray-600 disabled:opacity-50">
+                            {isSubmitting ? <Loader2 size={14} className="animate-spin" /> : <MessageCircle size={14} />}
+                            Comentar
+                        </button>
+                    </div>
+                </form>
+            )}
         </div>
 
         {/* Lista de Respostas */}
@@ -184,7 +231,7 @@ export default function DuvidaDetalhePage() {
                         <div className="mt-4 flex items-center justify-between">
                             <div className="flex items-center gap-4">
                                 <button onClick={() => handleUpvote(resposta.id)} disabled={resposta.user_has_voted || autor?.id === currentUser.id} className={`flex items-center gap-1.5 text-sm transition ${resposta.user_has_voted ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-blue-600'}`}><ThumbsUp size={16} /> {resposta.votes}</button>
-                                {podeMarcarMelhorResposta && !duvida.resolvida && !resposta.is_best_answer && (<button onClick={() => handleMarkBest(resposta.id)} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-green-600 transition"><Award size={16} /> Marcar como melhor resposta</button>)}
+                                {podeMarcarMelhorResposta && !resposta.is_best_answer && (<button onClick={() => handleMarkBest(resposta.id)} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-green-600 transition"><Award size={16} /> Marcar como melhor resposta</button>)}
                             </div>
                             {currentUser.tipo_usuario === 'PROFESSOR' && (<button onClick={() => handleDeleteAnswer(resposta.id)} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-red-600 transition"><Trash2 size={16} /> Excluir</button>)}
                         </div>
@@ -194,18 +241,20 @@ export default function DuvidaDetalhePage() {
             })}
         </div>
 
-        {/* Formulário para Nova Resposta */}
-        <div className="mt-8">
-            <h3 className="text-xl font-bold mb-2">A sua Resposta</h3>
-            <form onSubmit={handlePostAnswer}>
-                <AdvancedEditor content={newAnswer} onChange={setNewAnswer} placeholder="Escreva a sua resposta aqui..." />
-                <div className="mt-4 flex items-center">
-                    <input id="newAnswerIsAnonymous" type="checkbox" checked={newAnswerIsAnonymous} onChange={(e) => setNewAnswerIsAnonymous(e.target.checked)} className="h-4 w-4 rounded text-blue-600 focus:ring-blue-500" />
-                    <label htmlFor="newAnswerIsAnonymous" className="ml-3 block text-sm font-medium">Responder como anônimo</label>
-                </div>
-                <div className="flex justify-end mt-4"><button type="submit" disabled={isSubmitting} className="flex items-center gap-2 rounded-lg bg-blue-600 px-6 py-3 font-semibold text-white shadow-md transition hover:bg-blue-700 disabled:opacity-50">{isSubmitting ? <Loader2 className="animate-spin" /> : <Send />}{isSubmitting ? 'A Enviar...' : 'Enviar Resposta'}</button></div>
-            </form>
-        </div>
+        {/* Formulário para Nova Resposta (só aparece se NÃO for o autor) */}
+        {!isAuthor && (
+            <div className="mt-8">
+                <h3 className="text-xl font-bold mb-2">A sua Resposta</h3>
+                <form onSubmit={handlePostAnswer}>
+                    <AdvancedEditor content={newAnswer} onChange={setNewAnswer} placeholder="Escreva a sua resposta aqui..." />
+                    <div className="mt-4 flex items-center">
+                        <input id="newAnswerIsAnonymous" type="checkbox" checked={newAnswerIsAnonymous} onChange={(e) => setNewAnswerIsAnonymous(e.target.checked)} className="h-4 w-4 rounded text-blue-600 focus:ring-blue-500" />
+                        <label htmlFor="newAnswerIsAnonymous" className="ml-3 block text-sm font-medium">Responder como anônimo</label>
+                    </div>
+                    <div className="flex justify-end mt-4"><button type="submit" disabled={isSubmitting || !newAnswer.trim()} className="flex items-center gap-2 rounded-lg bg-blue-600 px-6 py-3 font-semibold text-white shadow-md transition hover:bg-blue-700 disabled:opacity-50">{isSubmitting ? <Loader2 className="animate-spin" /> : <Send />}{isSubmitting ? 'A Enviar...' : 'Enviar Resposta'}</button></div>
+                </form>
+            </div>
+        )}
     </div>
     );
 }
