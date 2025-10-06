@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import { AlunoView } from './aluno-view';
-import { ProfessorView } from './professor-view';
+import { AlunoView } from './AlunoView';
+import { ProfessorView } from './ProfessorView';
 
 type ProfileInfo = { id: string; nome: string; tipo_usuario: 'aluno' | 'professor' };
 
