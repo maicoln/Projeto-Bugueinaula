@@ -1,61 +1,87 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { useRouter } from 'next/navigation';
 import { AlunoView } from './AlunoView';
 import { ProfessorView } from './ProfessorView';
+import { Loader2 } from 'lucide-react';
 
-type ProfileInfo = { id: string; nome: string; tipo_usuario: 'aluno' | 'professor' };
+// --- Tipos ---
+export type ProfileInfo = {
+  id: string;
+  nome: string;
+  tipo_usuario: 'ALUNO' | 'PROFESSOR';
+};
 
+// --- Componente Principal ---
 export default function CentralDeDuvidasPage() {
-  const [user, setUser] = useState<ProfileInfo | null>(null);
+  const router = useRouter();
+  const [currentUser, setCurrentUser] = useState<ProfileInfo | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchUser = async () => {
-      setLoading(true);
+    const getCurrentUser = async () => {
       try {
-        const { data: { user: supaUser } } = await supabase.auth.getUser();
-        if (!supaUser) {
-          setUser(null);
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        if (!session?.user) {
+          router.push('/login');
           return;
         }
 
-        // Busca o perfil do usuário no Supabase
-        const { data, error } = await supabase
+        const { data: profile, error } = await supabase
           .from('profiles')
           .select('id, nome, tipo_usuario')
-          .eq('id', supaUser.id)
+          .eq('id', session.user.id)
           .single();
 
-        if (error) throw error;
-        setUser(data);
+        if (error || !profile) {
+          console.error('Erro ao buscar perfil:', error);
+          setLoading(false);
+          return;
+        }
+
+        setCurrentUser(profile as ProfileInfo);
       } catch (err) {
         console.error('Erro ao buscar perfil:', err);
-        setUser(null);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchUser();
-  }, []);
+    void getCurrentUser();
+  }, [router]);
 
-  if (loading) return <p className="p-6 text-center">Carregando perfil...</p>;
+  if (loading) {
+    return (
+      <div className="flex h-screen items-center justify-center text-gray-500">
+        <Loader2 className="mr-2 h-6 w-6 animate-spin" /> A verificar utilizador...
+      </div>
+    );
+  }
 
-  if (!user)
+  if (!currentUser) {
     return (
       <div className="p-6 text-center">
-        <p>Não foi possível identificar o utilizador.</p>
+        Não foi possível identificar o utilizador.
+        <br />
         <a href="/login" className="text-blue-600 underline">
           Ir para Login
         </a>
       </div>
     );
+  }
 
-  return user.tipo_usuario === 'professor' ? (
-    <ProfessorView user={user} />
-  ) : (
-    <AlunoView user={user} />
+  // Renderiza a view correta conforme tipo do usuário
+  if (currentUser.tipo_usuario === 'ALUNO') return <AlunoView user={currentUser} />;
+  if (currentUser.tipo_usuario === 'PROFESSOR') return <ProfessorView user={currentUser} />;
+
+  return (
+    <div className="p-6">
+      Tipo de utilizador não reconhecido.
+    </div>
   );
 }
