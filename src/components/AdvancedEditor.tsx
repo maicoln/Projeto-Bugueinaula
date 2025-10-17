@@ -1,6 +1,6 @@
 // Ficheiro: src/components/AdvancedEditor.tsx (VERSÃO FINAL E OTIMIZADA)
 'use client';
-
+// Teste deploy
 import { useEditor, EditorContent, Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder'; // <<< NOVO: Extensão para placeholder
