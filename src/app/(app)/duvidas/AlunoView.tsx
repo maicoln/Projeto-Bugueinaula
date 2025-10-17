@@ -5,7 +5,8 @@ import { useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import useSWR from 'swr';
 import Link from 'next/link';
-import { MessageSquare, Search, Loader2 } from 'lucide-react';
+// Importação do Plus para o botão de criar dúvida
+import { MessageSquare, Search, Loader2, Plus } from 'lucide-react'; 
 
 // --- Tipos ---
 export type ProfileInfo = { id: string; nome: string; tipo_usuario: string; turma_id: number | null }; 
@@ -30,10 +31,7 @@ type AlunoViewProps = { user: ProfileInfo };
 
 // --- Componente Corrigido ---
 export function AlunoView({ user }: AlunoViewProps) {
-  // O turma_id é lido diretamente do perfil do usuário
   const turmaIdDoAluno = user.turma_id;
-  
-  // Estados do filtro
   const [searchTerm, setSearchTerm] = useState('');
   const [activeFilter, setActiveFilter] = useState<'todas' | 'nao_resolvidas' | 'resolvidas' | 'gerais'>('todas');
   
@@ -43,33 +41,33 @@ export function AlunoView({ user }: AlunoViewProps) {
     
     let query = supabase
       .from('duvidas')
-      .select('id, titulo, created_at, resolvida, is_anonymous, disciplina_id, profiles(nome), respostas_duvidas(count)')
+      // Buscando profiles(nome) para obter o nome do autor
+      .select('id, titulo, created_at, resolvida, is_anonymous, profiles(nome), respostas_duvidas(count)') 
       .order('created_at', { ascending: false })
-      // FILTRO PRINCIPAL: Apenas dúvidas da turma do aluno
       .eq('turma_id', turmaIdDoAluno);
       
-    // Filtro de busca
     if (searchTerm.trim().length > 2) {
       query = query.textSearch('fts', `'${searchTerm.trim()}'`, { type: 'websearch', config: 'portuguese' });
     }
 
-    // Filtro de resolvida/gerais
     if (activeFilter === 'nao_resolvidas') query = query.eq('resolvida', false);
     else if (activeFilter === 'resolvidas') query = query.eq('resolvida', true);
     else if (activeFilter === 'gerais') query = query.is('disciplina_id', null);
 
     const { data, error } = await query;
-    if (error) throw error;
+    if (error) {
+         console.error("Erro no fetchDuvidas (Aluno):", error);
+         throw error;
+    }
 
     return (data as RawDuvida[]).map(d => ({
       ...d,
-      profile: d.profiles?.[0] ?? null,
+      // O nome do perfil é extraído do array de profiles retornado pelo Supabase
+      profile: d.profiles?.[0] ?? null, 
       respostas_count: d.respostas_duvidas[0]?.count ?? 0,
     }));
   };
 
-  // CORREÇÃO DO HOOK: useSWR chamado incondicionalmente no topo.
-  // O fetch só ocorre quando turmaIdDoAluno NÃO é null.
   const swrKey = turmaIdDoAluno ? ['duvidas_aluno', turmaIdDoAluno, searchTerm, activeFilter] : null;
   
   const { data: duvidas, error, isLoading } = useSWR(
@@ -87,9 +85,16 @@ export function AlunoView({ user }: AlunoViewProps) {
   
   return (
     <div className="p-6 animate-fade-in">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight">Central de Dúvidas da Turma</h1>
-        <p className="mt-1 text-gray-500 dark:text-gray-400">Aqui estão as dúvidas da sua turma, {user.nome}!</p>
+      <div className="mb-8 flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Central de Dúvidas da Turma</h1>
+          <p className="mt-1 text-gray-500 dark:text-gray-400">Aqui estão as dúvidas da sua turma, {user.nome}!</p>
+        </div>
+        {/* CORREÇÃO: Botão Criar Dúvida */}
+        <Link href="/duvidas/nova" className="flex items-center rounded-lg bg-blue-600 px-4 py-2 text-white shadow-md hover:bg-blue-700 transition-colors">
+          <Plus size={20} className="mr-2" />
+          Criar Dúvida
+        </Link>
       </div>
       
       {/* Busca */}
@@ -115,11 +120,12 @@ export function AlunoView({ user }: AlunoViewProps) {
           </div>
         )}
         {duvidas?.map(duvida => {
-             // LÓGICA DE EXIBIÇÃO DO NOME DO AUTOR (CORRIGIDA)
+            // Lógica de Exibição do Nome:
+             // Se for anônima E o usuário logado não for professor -> 'Anónimo'
+             // Senão -> Nome real (ou 'Desconhecido' se o perfil falhar)
             const nomeAutor = (duvida.is_anonymous && user.tipo_usuario !== 'PROFESSOR') 
                 ? 'Anónimo' 
                 : duvida.profile?.nome || 'Desconhecido';
-             // FIM DA LÓGICA DE EXIBIÇÃO DO NOME DO AUTOR
             
             return (
               <Link key={duvida.id} href={`/duvidas/${duvida.id}`} className="block">
