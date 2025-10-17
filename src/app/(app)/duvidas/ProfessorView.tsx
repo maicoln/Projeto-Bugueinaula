@@ -13,7 +13,6 @@ export type ProfileInfo = { id: string; nome: string; tipo_usuario: string; turm
 type EscolaInfo = { id: number; nome: string; };
 type TurmaInfo = { id: number; nome: string; escola_id: number; };
 
-// Tipo "limpo" que será usado pelo componente React
 type Duvida = {
   id: number;
   titulo: string;
@@ -25,7 +24,6 @@ type Duvida = {
   respostas_count: number;
 };
 
-// Tipo que descreve a resposta "bruta" que vem do Supabase
 type DuvidaFromSupabase = {
   id: number;
   titulo: string;
@@ -33,7 +31,6 @@ type DuvidaFromSupabase = {
   resolvida: boolean;
   is_anonymous: boolean;
   disciplina_id: number | null;
-  escola_id: number;
   profiles: { nome: string } | { nome: string }[] | null;
   respostas_duvidas: { count: number }[];
 };
@@ -71,22 +68,40 @@ export function ProfessorView({ user }: ProfessorViewProps) {
   
   const fetchDuvidas = async (): Promise<Duvida[]> => {
     if (!selectedEscola) return [];
+
+    let turmaIdsParaFiltrar: number[] = [];
+
+    if (selectedTurma) {
+        // Se uma turma específica está selecionada, usamos apenas o ID dela
+        turmaIdsParaFiltrar = [selectedTurma];
+    } else {
+        // Se "Todas as Turmas", buscamos todos os IDs de turma da escola
+        const { data: turmasDaEscola, error: turmasError } = await supabase
+            .from('turmas')
+            .select('id')
+            .eq('escola_id', selectedEscola);
+
+        if (turmasError) {
+            console.error("Erro ao buscar turmas da escola:", turmasError);
+            throw turmasError;
+        }
+        turmaIdsParaFiltrar = turmasDaEscola.map(t => t.id);
+    }
+
+    if (turmaIdsParaFiltrar.length === 0) {
+        return [];
+    }
     
     let query = supabase
       .from('duvidas')
-      .select('id, titulo, created_at, resolvida, is_anonymous, escola_id, disciplina_id, profiles(nome), respostas_duvidas(count)')
-      .order('created_at', { ascending: false });
+      .select('id, titulo, created_at, resolvida, is_anonymous, disciplina_id, profiles(nome), respostas_duvidas(count)')
+      .order('created_at', { ascending: false })
+      .in('turma_id', turmaIdsParaFiltrar); // Filtro unificado
 
-    query = query.eq('escola_id', selectedEscola);
-
-    if (selectedTurma) {
-      query = query.eq('turma_id', selectedTurma);
-    }
-    
+    // Aplicar filtros restantes
     if (searchTerm.trim().length > 2) {
       query = query.textSearch('fts', `'${searchTerm.trim()}'`, { type: 'websearch', config: 'portuguese' });
     }
-
     if (activeFilter === 'nao_resolvidas') query = query.eq('resolvida', false);
     else if (activeFilter === 'resolvidas') query = query.eq('resolvida', true);
     else if (activeFilter === 'gerais') query = query.is('disciplina_id', null);
@@ -129,7 +144,7 @@ export function ProfessorView({ user }: ProfessorViewProps) {
           {escolas?.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
         </select>
         
-        <select value={selectedTurma ?? ''} onChange={(e) => setSelectedTurma(Number(e.target.value))} className="rounded-lg border p-3 shadow-sm dark:border-gray-600 dark:bg-gray-800" disabled={!selectedEscola || isLoadingTurmas}>
+        <select value={selectedTurma ?? ''} onChange={(e) => setSelectedTurma(e.target.value ? Number(e.target.value) : null)} className="rounded-lg border p-3 shadow-sm dark:border-gray-600 dark:bg-gray-800" disabled={!selectedEscola || isLoadingTurmas}>
           <option value="">{isLoadingTurmas ? 'A carregar turmas...' : 'Todas as Turmas'}</option>
           {turmas?.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
         </select>
@@ -147,7 +162,6 @@ export function ProfessorView({ user }: ProfessorViewProps) {
           </div>
         )}
         {duvidas?.map(duvida => {
-            // Professor sempre vê o nome real
             const nomeAutor = duvida.profile?.nome || 'Desconhecido';
 
             return (
