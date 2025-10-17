@@ -30,20 +30,16 @@ type AlunoViewProps = { user: ProfileInfo };
 
 // --- Componente Corrigido ---
 export function AlunoView({ user }: AlunoViewProps) {
-  // O turma_id é lido diretamente do perfil do usuário, que é carregado no page.tsx
+  // O turma_id é lido diretamente do perfil do usuário
   const turmaIdDoAluno = user.turma_id;
   
   // Estados do filtro
   const [searchTerm, setSearchTerm] = useState('');
   const [activeFilter, setActiveFilter] = useState<'todas' | 'nao_resolvidas' | 'resolvidas' | 'gerais'>('todas');
   
-  // --- Função Fetcher (sem alterações, mas isolada para clareza) ---
+  // --- Função Fetcher ---
   const fetchDuvidas = async () => {
-    // Esta checagem NÃO viola a regra de Hooks, pois está dentro da função fetcher
-    if (!turmaIdDoAluno) {
-      // Isso não deve ocorrer se a checagem no JSX for bem-sucedida, mas é uma proteção
-      return []; 
-    }
+    if (!turmaIdDoAluno) return []; 
     
     let query = supabase
       .from('duvidas')
@@ -52,10 +48,6 @@ export function AlunoView({ user }: AlunoViewProps) {
       // FILTRO PRINCIPAL: Apenas dúvidas da turma do aluno
       .eq('turma_id', turmaIdDoAluno);
       
-    // Buscar apenas dúvidas não anônimas
-    // Se você quiser que o aluno veja as dúvidas anônimas feitas por outros alunos da turma, remova esta linha.
-    query = query.eq('is_anonymous', false); 
-
     // Filtro de busca
     if (searchTerm.trim().length > 2) {
       query = query.textSearch('fts', `'${searchTerm.trim()}'`, { type: 'websearch', config: 'portuguese' });
@@ -76,9 +68,8 @@ export function AlunoView({ user }: AlunoViewProps) {
     }));
   };
 
-  // CORREÇÃO: O useSWR é chamado incondicionalmente no topo do componente.
-  // Ele usa `turmaIdDoAluno ? [...] : null` como chave para DESABILITAR o fetching 
-  // se o turma_id ainda não estiver disponível.
+  // CORREÇÃO DO HOOK: useSWR chamado incondicionalmente no topo.
+  // O fetch só ocorre quando turmaIdDoAluno NÃO é null.
   const swrKey = turmaIdDoAluno ? ['duvidas_aluno', turmaIdDoAluno, searchTerm, activeFilter] : null;
   
   const { data: duvidas, error, isLoading } = useSWR(
@@ -86,7 +77,6 @@ export function AlunoView({ user }: AlunoViewProps) {
     fetchDuvidas
   );
   
-  // --- Renderização Condicional (Não é um Hook, então está OK) ---
   if (!turmaIdDoAluno) {
     return (
       <div className="p-6 text-center text-red-500">
@@ -124,23 +114,31 @@ export function AlunoView({ user }: AlunoViewProps) {
             <h3 className="text-xl font-semibold">Nenhuma dúvida encontrada na sua turma.</h3>
           </div>
         )}
-        {duvidas?.map(duvida => (
-          <Link key={duvida.id} href={`/duvidas/${duvida.id}`} className="block">
-            <div className="rounded-lg border bg-white p-4 shadow-sm transition-all hover:shadow-md dark:border-gray-700 dark:bg-gray-800">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h4 className="font-bold text-lg text-gray-800 dark:text-gray-100">{duvida.titulo}</h4>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                    Perguntado por {duvida.profile?.nome || 'Desconhecido'} • {new Date(duvida.created_at).toLocaleDateString('pt-BR')}
-                  </p>
+        {duvidas?.map(duvida => {
+             // LÓGICA DE EXIBIÇÃO DO NOME DO AUTOR (CORRIGIDA)
+            const nomeAutor = (duvida.is_anonymous && user.tipo_usuario !== 'PROFESSOR') 
+                ? 'Anónimo' 
+                : duvida.profile?.nome || 'Desconhecido';
+             // FIM DA LÓGICA DE EXIBIÇÃO DO NOME DO AUTOR
+            
+            return (
+              <Link key={duvida.id} href={`/duvidas/${duvida.id}`} className="block">
+                <div className="rounded-lg border bg-white p-4 shadow-sm transition-all hover:shadow-md dark:border-gray-700 dark:bg-gray-800">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h4 className="font-bold text-lg text-gray-800 dark:text-gray-100">{duvida.titulo}</h4>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                        Perguntado por {nomeAutor} • {new Date(duvida.created_at).toLocaleDateString('pt-BR')}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                      <span>{duvida.respostas_count}</span><MessageSquare size={16} />
+                    </div>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
-                  <span>{duvida.respostas_count}</span><MessageSquare size={16} />
-                </div>
-              </div>
-            </div>
-          </Link>
-        ))}
+              </Link>
+            );
+        })}
       </div>
     </div>
   );
