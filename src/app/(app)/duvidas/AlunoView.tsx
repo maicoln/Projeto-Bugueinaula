@@ -10,6 +10,7 @@ import { MessageSquare, Search, Loader2, Plus } from 'lucide-react';
 // --- Tipos ---
 export type ProfileInfo = { id: string; nome: string; tipo_usuario: string; turma_id: number | null };
 
+// Tipo "limpo" que será usado pelo componente React
 type Duvida = {
   id: number;
   titulo: string;
@@ -21,26 +22,32 @@ type Duvida = {
   respostas_count: number;
 };
 
-type RawDuvida = Omit<Duvida, 'profile' | 'respostas_count'> & {
-  profiles: { nome: string }[] | null;
+// Tipo que descreve a resposta "bruta" que vem do Supabase
+type DuvidaFromSupabase = {
+  id: number;
+  titulo: string;
+  created_at: string;
+  resolvida: boolean;
+  is_anonymous: boolean;
+  disciplina_id: number | null;
+  profiles: { nome: string } | { nome: string }[] | null;
   respostas_duvidas: { count: number }[];
 };
 
 type AlunoViewProps = { user: ProfileInfo };
 
-// --- Componente Corrigido ---
+// --- Componente ---
 export function AlunoView({ user }: AlunoViewProps) {
   const turmaIdDoAluno = user.turma_id;
   const [searchTerm, setSearchTerm] = useState('');
   const [activeFilter, setActiveFilter] = useState<'todas' | 'nao_resolvidas' | 'resolvidas' | 'gerais'>('todas');
   
   // --- Função Fetcher ---
-  const fetchDuvidas = async () => {
+  const fetchDuvidas = async (): Promise<Duvida[]> => {
     if (!turmaIdDoAluno) return []; 
     
     let query = supabase
       .from('duvidas')
-      // CORREÇÃO: Adicionado 'disciplina_id' para corresponder ao tipo e garantir o processamento correto dos dados.
       .select('id, titulo, created_at, resolvida, is_anonymous, disciplina_id, profiles(nome), respostas_duvidas(count)') 
       .order('created_at', { ascending: false })
       .eq('turma_id', turmaIdDoAluno);
@@ -59,17 +66,23 @@ export function AlunoView({ user }: AlunoViewProps) {
         throw error;
     }
 
-    return (data as RawDuvida[]).map(d => ({
-      ...d,
-      // O nome do perfil é extraído do array de profiles retornado pelo Supabase
-      profile: d.profiles?.[0] ?? null, 
+    const rawDuvidas = data as DuvidaFromSupabase[];
+
+    return rawDuvidas.map((d): Duvida => ({
+      id: d.id,
+      titulo: d.titulo,
+      created_at: d.created_at,
+      resolvida: d.resolvida,
+      is_anonymous: d.is_anonymous,
+      disciplina_id: d.disciplina_id,
+      profile: Array.isArray(d.profiles) ? d.profiles[0] ?? null : d.profiles, 
       respostas_count: d.respostas_duvidas[0]?.count ?? 0,
     }));
   };
 
   const swrKey = turmaIdDoAluno ? ['duvidas_aluno', turmaIdDoAluno, searchTerm, activeFilter] : null;
   
-  const { data: duvidas, error, isLoading } = useSWR(
+  const { data: duvidas, error, isLoading } = useSWR<Duvida[]>(
     swrKey,
     fetchDuvidas
   );
@@ -95,7 +108,6 @@ export function AlunoView({ user }: AlunoViewProps) {
         </Link>
       </div>
       
-      {/* Busca */}
       <div className="mb-6 relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
         <input
@@ -107,20 +119,16 @@ export function AlunoView({ user }: AlunoViewProps) {
         />
       </div>
 
-      {/* Lista de dúvidas */}
       <div className="space-y-4">
-        {(isLoading || !swrKey) && <p className="text-center text-gray-500"><Loader2 className="mr-2 h-6 w-6 animate-spin mx-auto" />A carregar dúvidas...</p>}
+        {isLoading && <p className="text-center text-gray-500"><Loader2 className="mr-2 h-6 w-6 animate-spin mx-auto" />A carregar dúvidas...</p>}
         {error && <p className="text-center text-red-500">Erro ao carregar as dúvidas.</p>}
-        {!isLoading && swrKey && duvidas?.length === 0 && (
+        {!isLoading && duvidas?.length === 0 && (
           <div className="py-16 text-center text-gray-500">
             <MessageSquare size={48} className="mx-auto mb-4" />
             <h3 className="text-xl font-semibold">Nenhuma dúvida encontrada na sua turma.</h3>
           </div>
         )}
         {duvidas?.map(duvida => {
-            // Lógica de Exibição do Nome:
-              // Se for anônima E o usuário logado não for professor -> 'Anónimo'
-              // Senão -> Nome real (ou 'Desconhecido' se o perfil falhar)
             const nomeAutor = (duvida.is_anonymous && user.tipo_usuario !== 'PROFESSOR') 
               ? 'Anónimo' 
               : duvida.profile?.nome || 'Desconhecido';
