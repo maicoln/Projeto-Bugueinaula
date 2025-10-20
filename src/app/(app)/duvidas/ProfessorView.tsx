@@ -7,7 +7,6 @@ import useSWR from 'swr';
 import Link from 'next/link';
 import { MessageSquare, Search, Loader2, Check } from 'lucide-react';
 
-// --- Tipos ---
 export type ProfileInfo = { id: string; nome: string; tipo_usuario: string; turma_id: number | null };
 
 type EscolaInfo = { id: number; nome: string; };
