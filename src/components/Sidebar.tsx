@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Book, ChevronLeft, LayoutDashboard, BrainCircuit, PenSquare, FileEdit, ClipboardList, Music, HelpCircle } from 'lucide-react'; // <<< Ícone adicionado
+// <<< Ícone para o Chat adicionado >>>
+import { Book, ChevronLeft, LayoutDashboard, BrainCircuit, PenSquare, FileEdit, ClipboardList, Music, HelpCircle, MessageSquare } from 'lucide-react';
 import { Dispatch, SetStateAction, useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
@@ -41,13 +42,13 @@ export default function Sidebar({
 
   const menuItems = [
     { icon: LayoutDashboard, text: 'Painel', href: '/', roles: ['ALUNO', 'PROFESSOR'] },
-    // <<< NOVO LINK DA CENTRAL DE DÚVIDAS (para ambos os papéis) >>>
     { icon: HelpCircle, text: 'Central de Dúvidas', href: '/duvidas', roles: ['ALUNO', 'PROFESSOR'] },
     
     // Links de Aluno
     { icon: Book, text: 'Disciplinas', href: '/disciplinas', roles: ['ALUNO'] },
     { icon: ClipboardList, text: 'Minhas Atividades', href: '/aluno/atividades', roles: ['ALUNO'] },
     { icon: Music, text: 'Jukebox Coletiva', href: '/aluno/jukebox', roles: ['ALUNO'] },
+    { icon: MessageSquare, text: 'Chat da Turma', href: '/aluno/chat', roles: ['ALUNO'] }, // <<< NOVO LINK DO CHAT PARA ALUNOS
 
     // Links de Professor
     { icon: Book, text: 'Minhas Disciplinas', href: '/professor/minhas-disciplinas', roles: ['PROFESSOR'] },
@@ -55,6 +56,7 @@ export default function Sidebar({
     { icon: FileEdit, text: 'Gerir Conteúdo', href: '/professor/gerir-conteudo', roles: ['PROFESSOR'] },
     { icon: ClipboardList, text: 'Ver Submissões', href: '/professor/submissoes', roles: ['PROFESSOR'] },
     { icon: Music, text: 'Jukebox Player', href: '/professor/jukebox', roles: ['PROFESSOR'] },
+    { icon: MessageSquare, text: 'Chat das Turmas', href: '/professor/chat', roles: ['PROFESSOR'] }, // <<< NOVO LINK DO CHAT PARA PROFESSORES
   ];
 
   const visibleMenuItems = menuItems.filter(item => item.roles.includes(userRole));

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { Send, Loader2, AlertCircle, School, Users, MoreVertical, Ban } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 
 // --- Tipos ---
 type Message = {
@@ -148,7 +149,10 @@ export default function ChatClientPage() {
         <h1 className="text-3xl font-bold tracking-tight">Chat das Turmas</h1>
         <p className="text-gray-500 dark:text-gray-400">Selecione uma escola e turma para ver e moderar o chat.</p>
       </div>
-      
+      <Link href="/professor/chat/banidos" className="flex items-center gap-2 rounded-lg border bg-white px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700">
+            <Ban size={16} />
+            Gerir Banimentos
+        </Link>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
         <div className="relative"><School className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" /><select value={selectedEscola} onChange={e => setSelectedEscola(e.target.value)} className="w-full appearance-none rounded-lg border p-3 pl-10 dark:border-gray-600 dark:bg-gray-800"><option value="">Selecione uma escola</option>{escolas.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}</select></div>
         <div className="relative"><Users className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" /><select value={selectedTurma} onChange={e => setSelectedTurma(e.target.value)} disabled={!selectedEscola} className="w-full appearance-none rounded-lg border p-3 pl-10 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800"><option value="">Selecione uma turma</option>{turmas.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}</select></div>
