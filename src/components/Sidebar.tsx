@@ -51,7 +51,6 @@ export default function Sidebar({
     { icon: MessageSquare, text: 'Chat da Turma', href: '/aluno/chat', roles: ['ALUNO'] }, // <<< NOVO LINK DO CHAT PARA ALUNOS
 
     // Links de Professor
-    //
     { icon: Book, text: 'Minhas Disciplinas', href: '/professor/minhas-disciplinas', roles: ['PROFESSOR'] },
     { icon: PenSquare, text: 'Cadastrar Conteúdo', href: '/professor/cadastrar-conteudo', roles: ['PROFESSOR'] },
     { icon: FileEdit, text: 'Gerir Conteúdo', href: '/professor/gerir-conteudo', roles: ['PROFESSOR'] },
