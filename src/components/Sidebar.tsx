@@ -51,6 +51,7 @@ export default function Sidebar({
     { icon: MessageSquare, text: 'Chat da Turma', href: '/aluno/chat', roles: ['ALUNO'] }, // <<< NOVO LINK DO CHAT PARA ALUNOS
 
     // Links de Professor
+    //
     { icon: Book, text: 'Minhas Disciplinas', href: '/professor/minhas-disciplinas', roles: ['PROFESSOR'] },
     { icon: PenSquare, text: 'Cadastrar Conteúdo', href: '/professor/cadastrar-conteudo', roles: ['PROFESSOR'] },
     { icon: FileEdit, text: 'Gerir Conteúdo', href: '/professor/gerir-conteudo', roles: ['PROFESSOR'] },
@@ -113,7 +114,6 @@ export default function Sidebar({
             </span>
           </Link>
         </div>
-
         <nav className="flex-1 px-2 py-2 space-y-1">
           {visibleMenuItems.map((item) => {
             const isActive = pathname.startsWith(item.href) && item.href.length > 1 || pathname === item.href;
