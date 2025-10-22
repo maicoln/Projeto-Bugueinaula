@@ -2,10 +2,12 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-// <<< Ícone para o Chat adicionado >>>
-import { Book, ChevronLeft, LayoutDashboard, BrainCircuit, PenSquare, FileEdit, ClipboardList, Music, HelpCircle, MessageSquare } from 'lucide-react';
+import {
+  Book, ChevronLeft, LayoutDashboard, BrainCircuit, PenSquare,
+  FileEdit, ClipboardList, Music, HelpCircle, MessageSquare
+} from 'lucide-react';
 import { Dispatch, SetStateAction, useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabaseClient';
+import { createClient } from '@/lib/supabaseClient';
 
 interface SidebarProps {
   isCollapsed: boolean;
@@ -21,6 +23,7 @@ export default function Sidebar({
   setMobileOpen,
 }: SidebarProps) {
   const pathname = usePathname();
+  const [supabase] = useState(() => createClient());
   const [userRole, setUserRole] = useState('');
 
   useEffect(() => {
@@ -38,32 +41,27 @@ export default function Sidebar({
       }
     }
     void fetchUserRole();
-  }, []);
+  }, [supabase]);
 
   const menuItems = [
     { icon: LayoutDashboard, text: 'Painel', href: '/', roles: ['ALUNO', 'PROFESSOR'] },
     { icon: HelpCircle, text: 'Central de Dúvidas', href: '/duvidas', roles: ['ALUNO', 'PROFESSOR'] },
-    
-    // Links de Aluno
     { icon: Book, text: 'Disciplinas', href: '/disciplinas', roles: ['ALUNO'] },
     { icon: ClipboardList, text: 'Minhas Atividades', href: '/aluno/atividades', roles: ['ALUNO'] },
     { icon: Music, text: 'Jukebox Coletiva', href: '/aluno/jukebox', roles: ['ALUNO'] },
-    { icon: MessageSquare, text: 'Chat da Turma', href: '/aluno/chat', roles: ['ALUNO'] }, // <<< NOVO LINK DO CHAT PARA ALUNOS
-
-    // Links de Professor
+    { icon: MessageSquare, text: 'Chat da Turma', href: '/aluno/chat', roles: ['ALUNO'] },
     { icon: Book, text: 'Minhas Disciplinas', href: '/professor/minhas-disciplinas', roles: ['PROFESSOR'] },
     { icon: PenSquare, text: 'Cadastrar Conteúdo', href: '/professor/cadastrar-conteudo', roles: ['PROFESSOR'] },
     { icon: FileEdit, text: 'Gerir Conteúdo', href: '/professor/gerir-conteudo', roles: ['PROFESSOR'] },
     { icon: ClipboardList, text: 'Ver Submissões', href: '/professor/submissoes', roles: ['PROFESSOR'] },
     { icon: Music, text: 'Jukebox Player', href: '/professor/jukebox', roles: ['PROFESSOR'] },
-    { icon: MessageSquare, text: 'Chat das Turmas', href: '/professor/chat', roles: ['PROFESSOR'] }, // <<< NOVO LINK DO CHAT PARA PROFESSORES
+    { icon: MessageSquare, text: 'Chat das Turmas', href: '/professor/chat', roles: ['PROFESSOR'] },
   ];
 
   const visibleMenuItems = menuItems.filter(item => item.roles.includes(userRole));
 
   return (
     <>
-      {/* Overlay Mobile */}
       {isMobileOpen && (
         <div
           className="fixed inset-0 z-[9998] md:hidden"
@@ -73,7 +71,6 @@ export default function Sidebar({
         </div>
       )}
 
-      {/* Sidebar */}
       <aside
         className={`
           fixed top-0 left-0 z-[9999] h-screen
@@ -88,8 +85,8 @@ export default function Sidebar({
         <button
           onClick={() => setCollapsed(!isCollapsed)}
           className="absolute top-6 -right-3 z-50 hidden md:flex items-center justify-center
-                       h-6 w-6 rounded-full bg-blue-600 text-white
-                       hover:scale-110 transition-transform shadow-md"
+                     h-6 w-6 rounded-full bg-blue-600 text-white
+                     hover:scale-110 transition-transform shadow-md"
           aria-label="Recolher barra lateral"
         >
           <ChevronLeft
@@ -113,9 +110,10 @@ export default function Sidebar({
             </span>
           </Link>
         </div>
+
         <nav className="flex-1 px-2 py-2 space-y-1">
           {visibleMenuItems.map((item) => {
-            const isActive = pathname.startsWith(item.href) && item.href.length > 1 || pathname === item.href;
+            const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
             return (
               <div key={item.text} className="relative group">
                 <Link href={item.href}>
@@ -133,9 +131,7 @@ export default function Sidebar({
                     <item.icon size={24} className="flex-shrink-0" />
                     <span
                       className={`transition-all duration-300 ${
-                        isCollapsed
-                          ? 'opacity-0 w-0 overflow-hidden'
-                          : 'opacity-100 whitespace-nowrap'
+                        isCollapsed ? 'opacity-0 w-0 overflow-hidden' : 'opacity-100 whitespace-nowrap'
                       }`}
                     >
                       {item.text}

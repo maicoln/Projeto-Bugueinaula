@@ -1,13 +1,15 @@
 'use client';
 
 import { useState } from 'react';
-import { supabase } from '@/lib/supabaseClient';
+import { createClient } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { BrainCircuit, Mail, Lock } from 'lucide-react';
 import { motion, Variants } from 'framer-motion';
 
 export default function LoginPage() {
+  const [supabase] = useState(() => createClient());
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [message, setMessage] = useState('');
@@ -19,10 +21,7 @@ export default function LoginPage() {
     setMessage('');
     setLoading(true);
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
 
     if (error) {
       setMessage(`Erro no login: ${error.message}`);
@@ -30,6 +29,7 @@ export default function LoginPage() {
       router.push('/');
       router.refresh();
     }
+
     setLoading(false);
   };
 
@@ -46,7 +46,7 @@ export default function LoginPage() {
     visible: {
       opacity: 1,
       y: 0,
-      transition: { type: 'spring' as const, stiffness: 60 },
+      transition: { type: 'spring', stiffness: 60 },
     },
   };
 
@@ -131,6 +131,7 @@ export default function LoginPage() {
               whileHover={{ scale: 1.05, boxShadow: '0px 0px 12px rgba(59,130,246,0.6)' }}
               whileTap={{ scale: 0.95 }}
               className="w-full rounded-lg bg-gradient-to-r from-blue-600 to-blue-700 p-3 text-white font-semibold shadow-md transition disabled:opacity-50"
+              aria-label="Entrar"
             >
               {loading ? 'Entrando...' : 'Entrar'}
             </motion.button>
